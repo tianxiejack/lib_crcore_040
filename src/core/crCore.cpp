@@ -1,0 +1,728 @@
+/*
+ * crCore.cpp
+ *
+ *  Created on: Sep 27, 2018
+ *      Author: wzk
+ */
+#include <glew.h>
+#include <glut.h>
+#include <freeglut_ext.h>
+#include "mmtdProcess.hpp"
+#include "GeneralProcess.hpp"
+#include "Displayer.hpp"
+#include "encTrans.hpp"
+#include "osa_image_queue.h"
+#include "cuda_convert.cuh"
+#include "thread.h"
+#include "crCore.hpp"
+
+namespace cr_local
+{
+static CEncTrans enctran;
+static CRender *render = NULL;
+static IProcess *proc = NULL;
+static CMMTDProcess *mmtd = NULL;
+static CGeneralProc *general = NULL;
+
+static int curChannelFlag = 0;
+static int curFovIdFlag[CORE_CHN_MAX];
+static bool enableTrackFlag = false;
+static bool enableMMTDFlag = false;
+static bool enableEnhFlag[CORE_CHN_MAX];
+static bool enableEncoderFlag[CORE_CHN_MAX];
+static bool enableOSDFlag = true;
+static int ezoomxFlag[CORE_CHN_MAX];
+static int colorYUVFlag = WHITECOLOR;
+static int nValidChannels = CORE_CHN_MAX;
+static cv::Size channelsImgSize[CORE_CHN_MAX];
+
+static int defaultEncParamTab[][8] = {
+	//bitrate; minQP; maxQP;minQI;maxQI;minQB;maxQB;
+	{1400000,  -1,    -1,   -1,   -1,   -1,   -1, },//2M
+	{2800000,  -1,    -1,   -1,   -1,   -1,   -1, },//4M
+	{5600000,  -1,    -1,   -1,   -1,   -1,   -1, } //8M
+};
+static int *userEncParamTab[3] = {NULL, NULL, NULL};
+
+static void localInit(int nChannels)
+{
+	curChannelFlag = 0;
+	memset(curFovIdFlag, 0, sizeof(curFovIdFlag));
+	enableTrackFlag = false;
+	enableMMTDFlag = false;
+	memset(enableEnhFlag, 0, sizeof(enableEnhFlag));
+	for(int i=0; i<CORE_CHN_MAX; i++){
+		enableEncoderFlag[i] = true;
+		ezoomxFlag[i] = 1;
+	}
+	enableOSDFlag = true;
+	colorYUVFlag = WHITECOLOR;
+	userEncParamTab[0] = defaultEncParamTab[0];
+	userEncParamTab[1] = defaultEncParamTab[1];
+	userEncParamTab[2] = defaultEncParamTab[2];
+
+	nValidChannels = nChannels;
+	OSA_assert(nChannels>0 && nChannels<=CORE_CHN_MAX);
+}
+
+/************************************************************
+ *
+ *
+ */
+static int setEncTransLevel(int iLevel)
+{
+	ENCTRAN_encPrm encPrm;
+	int iret = OSA_SOK;
+
+	encPrm.bitrate = userEncParamTab[iLevel][0];
+	encPrm.minQP = userEncParamTab[iLevel][1];
+	encPrm.maxQP = userEncParamTab[iLevel][2];
+	encPrm.minQI = userEncParamTab[iLevel][3];
+	encPrm.maxQI = userEncParamTab[iLevel][4];
+	encPrm.minQB = userEncParamTab[iLevel][5];
+	encPrm.maxQB = userEncParamTab[iLevel][6];
+	enctran.dynamic_config(CEncTrans::CFG_TransLevel, iLevel, NULL);
+	for(int chId=0; chId<nValidChannels; chId++)
+		enctran.dynamic_config(CEncTrans::CFG_EncPrm, chId, &encPrm);
+
+	return iret;
+}
+
+static int setMainChId(int chId, int fovId, int ndrop, UTC_SIZE acqSize)
+{
+	VPCFG_MainChPrm mcPrm;
+	int iret = OSA_SOK;
+	if(chId<0||chId>=nValidChannels)
+		return OSA_EFAIL;
+	if(fovId<0||fovId>=MAX_NFOV_PER_CHAN)
+		return OSA_EFAIL;
+	mcPrm.fovId = fovId;
+	mcPrm.iIntervalFrames = ndrop;
+	if(render!= NULL){
+		//OSA_printf("%s %d: ...", __func__, __LINE__);
+		render->dynamic_config(CRender::DS_CFG_ChId, 0, &chId);
+	}
+	//OSA_printf("%s %d: ...", __func__, __LINE__);
+	proc->dynamic_config(CTrackerProc::VP_CFG_AcqWinSize, 0, &acqSize, sizeof(acqSize));
+	proc->dynamic_config(CTrackerProc::VP_CFG_MainChId, chId, &mcPrm, sizeof(mcPrm));
+	proc->dynamic_config(CMMTDProcess::VP_CFG_MainChId, chId, &mcPrm, sizeof(mcPrm));
+	curChannelFlag = chId;
+	curFovIdFlag[chId] = fovId;
+	//OSA_printf("%s %d: ... leave\n", __func__, __LINE__);
+	return iret;
+}
+
+static int enableTrack(bool enable, UTC_SIZE winSize, bool bFixSize)
+{
+	int iret = OSA_SOK;
+	proc->dynamic_config(CTrackerProc::VP_CFG_AcqWinSize, bFixSize, &winSize, sizeof(winSize));
+	proc->dynamic_config(CTrackerProc::VP_CFG_TrkEnable, enable);
+	enableTrackFlag = enable;
+	return iret;
+}
+
+static int enableTrack(bool enable, UTC_RECT_float winRect, bool bFixSize)
+{
+	int iret = OSA_SOK;
+	proc->dynamic_config(CTrackerProc::VP_CFG_TrkEnable, enable, &winRect, sizeof(winRect));
+	proc->dynamic_config(CTrackerProc::VP_CFG_AcqWinSize, bFixSize);
+	enableTrackFlag = enable;
+	return iret;
+}
+
+static int enableMMTD(bool enable, int nTarget)
+{
+	int iret = OSA_SOK;
+	if(enable)
+		proc->dynamic_config(CMMTDProcess::VP_CFG_MMTDTargetCount, nTarget);
+	proc->dynamic_config(CMMTDProcess::VP_CFG_MMTDEnable, enable);
+	enableMMTDFlag = enable;
+	return iret;
+}
+
+static int enableTrackByMMTD(int index, cv::Size *winSize, bool bFixSize)
+{
+	if(index<0 || index>=MAX_TGT_NUM)
+		return OSA_EFAIL;
+
+	if(!mmtd->m_target[index].valid)
+		return OSA_EFAIL;
+
+	UTC_RECT_float acqrc;
+	acqrc.x = mmtd->m_target[index].Box.x;
+	acqrc.y = mmtd->m_target[index].Box.y;
+	acqrc.width = mmtd->m_target[index].Box.width;
+	acqrc.height = mmtd->m_target[index].Box.height;
+
+	if(winSize != NULL){
+		acqrc.width = winSize->width;
+		acqrc.height = winSize->height;
+	}
+
+	proc->dynamic_config(CTrackerProc::VP_CFG_AcqWinSize, bFixSize);
+	return proc->dynamic_config(CTrackerProc::VP_CFG_TrkEnable, true, &acqrc, sizeof(acqrc));
+}
+
+static int enableEnh(bool enable)
+{
+	enableEnhFlag[curChannelFlag] = enable;
+	return OSA_SOK;
+}
+
+static int enableOSD(bool enable)
+{
+	enableOSDFlag = enable;
+	return OSA_SOK;
+}
+
+int enableEncoder(int chId, bool enable)
+{
+	enableEncoderFlag[chId] = enable;
+	return enctran.dynamic_config(CEncTrans::CFG_Enable, chId, &enable);
+}
+
+static int setAxisPos(cv::Point pos)
+{
+	cv::Point2f setPos(pos.x, pos.y);
+	int ret = proc->dynamic_config(CTrackerProc::VP_CFG_Axis, 0, &setPos, sizeof(setPos));
+	OSA_assert(ret == OSA_SOK);
+	ret = proc->dynamic_config(CTrackerProc::VP_CFG_SaveAxisToArray, 0);
+	return ret;
+}
+
+static int saveAxisPos()
+{
+	return proc->dynamic_config(CTrackerProc::VP_CFG_SaveAxisToFile, 0);
+}
+
+static int setEZoomx(int value)//1/2/4
+{
+	if(value != 1 && value != 2 && value != 4)
+		return OSA_EFAIL;
+	ezoomxFlag[curChannelFlag] = value;
+	return OSA_SOK;
+}
+
+static int setTrackCoast(int nFrames)
+{
+	return proc->dynamic_config(CTrackerProc::VP_CFG_TrkCoast, nFrames);
+}
+
+static int setTrackPosRef(cv::Point2f ref)
+{
+	return proc->dynamic_config(CTrackerProc::VP_CFG_TrkPosRef, 0, &ref, sizeof(ref));
+}
+
+static int setOSDColor(int value)
+{
+	colorYUVFlag = value;
+}
+
+
+/************************************************************************
+ *      process unit
+ *
+ */
+
+static OSA_BufHndl *imgQRender[CORE_CHN_MAX] = {NULL,};
+static OSA_BufHndl *imgQEnc[CORE_CHN_MAX] = {NULL,};
+static OSA_SemHndl *imgQEncSem[CORE_CHN_MAX] = {NULL,};
+static unsigned char *memsI420[CORE_CHN_MAX] = {NULL,};
+static cv::Mat imgOsd[CORE_CHN_MAX];
+
+static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
+{
+	int ret = OSA_SOK;
+	int chId;
+	unsigned char *mem = NULL;
+	OSA_assert(initParam != NULL);
+	int channels = initParam->nChannels;
+	bool bEncoder = initParam->bEncoder;
+	bool bRender = initParam->bRender;
+	bool bHideOSD = initParam->bHideOSD;
+	localInit(channels);
+	if(initParam->encoderParamTab[0]!=NULL)
+		userEncParamTab[0] = initParam->encoderParamTab[0];
+	if(initParam->encoderParamTab[1]!=NULL)
+		userEncParamTab[1] = initParam->encoderParamTab[1];
+	if(initParam->encoderParamTab[2]!=NULL)
+		userEncParamTab[2] = initParam->encoderParamTab[2];
+
+	cuConvertInit(channels);
+
+	for(chId=0; chId<channels; chId++){
+		CORE1001_CHN_INIT_PARAM *chInf = &initParam->chnInfo[chId];
+		int width = chInf->imgSize.width;
+		int height = chInf->imgSize.height;
+		channelsImgSize[chId] = chInf->imgSize;
+		ret = cudaHostAlloc((void**)&memsI420[chId], width*height*3/2, cudaHostAllocDefault);
+		ret = cudaHostAlloc((void**)&mem, width*height, cudaHostAllocDefault);
+		imgOsd[chId] = Mat(height, width, CV_8UC1, mem);
+		memset(imgOsd[chId].data, 0, imgOsd[chId].cols*imgOsd[chId].rows*imgOsd[chId].channels());
+	}
+
+	if(bEncoder)
+	{
+		int iLevel = 1;
+		ENCTRAN_InitPrm enctranInit;
+		memset(&enctranInit, 0, sizeof(enctranInit));
+		enctranInit.iTransLevel = iLevel;
+		enctranInit.nChannels = channels;
+		for(chId=0; chId<channels; chId++){
+			CORE1001_CHN_INIT_PARAM *chInf = &initParam->chnInfo[chId];
+			enctranInit.defaultEnable[chId] = true;
+			enctranInit.imgSize[chId] = channelsImgSize[chId];
+			enctranInit.encPrm[chId].fps = chInf->fps;
+			enctranInit.encPrm[chId].bitrate = userEncParamTab[iLevel][0];
+			enctranInit.encPrm[chId].minQP = userEncParamTab[iLevel][1];
+			enctranInit.encPrm[chId].maxQP = userEncParamTab[iLevel][2];
+			enctranInit.encPrm[chId].minQI = userEncParamTab[iLevel][3];
+			enctranInit.encPrm[chId].maxQI = userEncParamTab[iLevel][4];
+			enctranInit.encPrm[chId].minQB = userEncParamTab[iLevel][5];
+			enctranInit.encPrm[chId].maxQB = userEncParamTab[iLevel][6];
+			enctranInit.srcType[chId] = APPSRC;
+		}
+		if(initParam->encStreamIpaddr != NULL){
+			enctranInit.bRtp = true;
+			strcpy(enctranInit.destIpaddr, initParam->encStreamIpaddr);
+		}
+
+		enctran.create();
+		enctran.init(&enctranInit);
+		enctran.run();
+		for(chId=0; chId<channels; chId++){
+			imgQEnc[chId] = enctran.m_bufQue[chId];
+			imgQEncSem[chId] = enctran.m_bufSem[chId];
+		}
+	}
+
+	if(bRender)
+	{
+		DS_InitPrm dsInit;
+		memset(&dsInit, 0, sizeof(dsInit));
+		dsInit.bFullScreen = true;
+		dsInit.nChannels = channels;
+		dsInit.memType = memtype_cudev;//memtype_glpbo;//memtype_cudev;
+		dsInit.nQueueSize = 2;
+		dsInit.disFPS = initParam->renderFPS;
+		for(chId=0; chId<channels; chId++){
+			int width = channelsImgSize[chId].width;
+			int height = channelsImgSize[chId].height;
+			dsInit.channelsSize[chId].w = width;
+			dsInit.channelsSize[chId].h = height;
+			dsInit.channelsSize[chId].c = 3;
+		}
+		render = CRender::createObject();
+		render->create();
+		render->init(&dsInit);
+		render->run();
+		for(chId=0; chId<channels; chId++)
+			imgQRender[chId] = &render->m_bufQue[chId];
+	}
+
+	mmtd = new CMMTDProcess();
+	mmtd->m_bHide = bHideOSD;
+	general = new CGeneralProc(notify,mmtd);
+	for(chId=0; chId<channels; chId++){
+		general->m_dc[chId] = imgOsd[chId];
+		if(!bEncoder && bRender){
+			general->m_dc[chId] = render->m_imgOsd[0];
+			general->m_color = cvScalarAll(255);
+			render->m_bOsd = true;
+		}
+		general->m_imgSize[chId] = channelsImgSize[chId];
+	}
+	general->m_bHide = bHideOSD;
+	proc = general;
+	general->creat();
+	general->init();
+	general->run();
+
+	return ret;
+}
+
+static int uninit()
+{
+	general->stop();
+	general->destroy();
+	enctran.stop();
+	enctran.destroy();
+	if(render != NULL){
+		render->stop();
+		render->destroy();
+		CRender::destroyObject(render);
+	}
+	delete general;
+	delete mmtd;
+	for(int chId=0; chId<nValidChannels; chId++){
+		cudaFreeHost(imgOsd[chId].data);
+		cudaFreeHost(memsI420[chId]);
+	}
+	cuConvertUinit();
+}
+#define ZeroCpy	(0)
+static void encTranFrame(int chId, Mat img, struct v4l2_buffer bufInfo, bool bEnc)
+{
+	Mat i420;
+	OSA_BufInfo* info = NULL;
+	unsigned char *mem = NULL;
+
+	enctran.scheduler(chId);
+
+	if(bEnc){
+		if(ZeroCpy){
+			if(imgQEnc[chId] != NULL)
+				info = image_queue_getEmpty(imgQEnc[chId]);
+		}
+		if(info != NULL){
+			info->chId = chId;
+			info->timestampCap = (uint64)bufInfo.timestamp.tv_sec*1000000000ul
+					+ (uint64)bufInfo.timestamp.tv_usec*1000ul;
+			info->timestamp = (uint64_t)getTickCount();
+			mem = (unsigned char *)info->virtAddr;
+		}
+	}
+
+	if(mem == NULL)
+		mem = memsI420[chId];
+	i420 = Mat((int)(img.rows+img.rows/2), img.cols, CV_8UC1, mem);
+	if(enableOSDFlag){
+		if(enableEnhFlag[chId])
+			cuConvertEnh_async(chId, img, imgOsd[chId], i420, ezoomxFlag[chId], colorYUVFlag);
+		else
+			cuConvert_async(chId, img, imgOsd[chId], i420, ezoomxFlag[chId], colorYUVFlag);
+	}else{
+		if(enableEnhFlag[chId])
+			cuConvertEnh_async(chId, img, i420, ezoomxFlag[chId]);
+		else
+			cuConvert_async(chId, img, i420, ezoomxFlag[chId]);
+	}
+
+	if(bEnc){
+		if(!ZeroCpy)
+			enctran.pushData(i420, chId, V4L2_PIX_FMT_YUV420M);
+		if(info != NULL){
+			info->channels = i420.channels();
+			info->width = i420.cols;
+			info->height = i420.rows;
+			info->format = V4L2_PIX_FMT_YUV420M;
+			image_queue_putFull(imgQEnc[chId], info);
+			OSA_semSignal(imgQEncSem[chId]);
+		}
+	}
+}
+#undef ZeroCpy
+
+static void renderFrameAfterEnc(int chId, Mat img, struct v4l2_buffer bufInfo)
+{
+	Mat bgr;
+	OSA_BufInfo* info = image_queue_getEmpty(imgQRender[chId]);
+	if(info != NULL)
+	{
+		bgr = Mat(img.rows,img.cols,CV_8UC3, info->physAddr);
+		cuConvertConn_yuv2bgr_i420(chId, bgr, CUT_FLAG_devAlloc);
+		info->chId = chId;
+		info->channels = bgr.channels();
+		info->width = bgr.cols;
+		info->height = bgr.rows;
+		info->format = V4L2_PIX_FMT_BGR24;
+		info->timestampCap = (uint64)bufInfo.timestamp.tv_sec*1000000000ul
+				+ (uint64)bufInfo.timestamp.tv_usec*1000ul;
+		info->timestamp = (uint64_t)getTickCount();
+		image_queue_putFull(imgQRender[chId], info);
+	}
+}
+
+static void renderFrame(int chId, Mat img, struct v4l2_buffer bufInfo, int format)
+{
+	if(chId == curChannelFlag && imgQRender[chId] != NULL)
+	{
+		Mat frame;
+		OSA_BufInfo* info = image_queue_getEmpty(imgQRender[chId]);
+		if(info != NULL)
+		{
+			if(format==V4L2_PIX_FMT_YUYV){
+				frame = Mat(img.rows,img.cols,CV_8UC3, info->physAddr);
+				if(enableEnhFlag[chId])
+					cuConvertEnh_yuv2bgr_yuyv_async(chId, img, frame, CUT_FLAG_devAlloc);
+				else
+					cuConvert_yuv2bgr_yuyv_async(chId, img, frame, CUT_FLAG_devAlloc);
+				info->format = V4L2_PIX_FMT_BGR24;
+			}
+			else//if(format==V4L2_PIX_FMT_GREY)
+			{
+				frame = Mat(img.rows,img.cols,CV_8UC1, info->physAddr);
+				if(enableEnhFlag[chId])
+					cuConvertEnh_gray(chId, img, frame, CUT_FLAG_devAlloc);
+				else
+					cudaMemcpy(info->physAddr, img.data, frame.rows*frame.cols*frame.channels(), cudaMemcpyHostToDevice);
+				info->format = V4L2_PIX_FMT_GREY;
+			}
+			info->chId = chId;
+			info->channels = frame.channels();
+			info->width = frame.cols;
+			info->height = frame.rows;
+			info->timestampCap = (uint64)bufInfo.timestamp.tv_sec*1000000000ul
+					+ (uint64)bufInfo.timestamp.tv_usec*1000ul;
+			info->timestamp = (uint64_t)getTickCount();
+			image_queue_putFull(imgQRender[chId], info);
+		}
+	}
+}
+
+static void processFrame(int cap_chid,unsigned char *src, struct v4l2_buffer capInfo, int format)
+{
+	Mat img;
+
+	if(capInfo.flags & V4L2_BUF_FLAG_ERROR)
+		return;
+	//struct timespec ns0;
+	//clock_gettime(CLOCK_MONOTONIC_RAW, &ns0);
+	if(format==V4L2_PIX_FMT_YUYV)
+	{
+		//OSA_printf("%s ch%d %d", __func__, cap_chid, OSA_getCurTimeInMsec());
+		//OSA_printf("%s: %d ch%d %p", __func__, __LINE__, cap_chid, src);
+		img	= Mat(channelsImgSize[cap_chid].height,channelsImgSize[cap_chid].width,CV_8UC2, src);
+	}
+	else if(format==V4L2_PIX_FMT_GREY)
+	{
+		//OSA_printf("%s ch%d %d", __func__, cap_chid, OSA_getCurTimeInMsec());
+		//OSA_printf("%s: %d ch%d %p", __func__, __LINE__, cap_chid, src);
+		img = Mat(channelsImgSize[cap_chid].height,channelsImgSize[cap_chid].width,CV_8UC1,src);
+	}else{
+		OSA_assert(0);
+	}
+
+	proc->process(cap_chid, curFovIdFlag[cap_chid], ezoomxFlag[cap_chid], img);
+	//OSA_printf("%s ch%d %d ... ", __func__, cap_chid, OSA_getCurTimeInMsec());
+
+	if(imgQEnc[cap_chid] != NULL)
+	{
+		encTranFrame(cap_chid, img, capInfo, enableEncoderFlag[cap_chid]);
+		if(imgQRender[cap_chid] != NULL)
+			renderFrameAfterEnc(cap_chid, img, capInfo);
+	}
+	else if(imgQRender[cap_chid] != NULL)
+	{
+		renderFrame(cap_chid, img, capInfo, format);
+	}
+
+	//struct timespec ns1;
+	//clock_gettime(CLOCK_MONOTONIC_RAW, &ns1);
+	//printf("[%ld.%ld] ch%d timestamp %ld.%ld flags %08X\n", ns1.tv_sec, ns1.tv_nsec/1000000,
+	//		cap_chid, ns0.tv_sec, ns0.tv_nsec/1000000, info.flags);
+}
+
+};//namespace cr_local
+
+class Core_1001 : public ICore_1001
+{
+	Core_1001():m_notifySem(NULL),m_bRun(false){memset(&m_stats, 0, sizeof(m_stats));};
+	virtual ~Core_1001(){uninit();};
+	friend ICore* ICore::Qury(int coreID);
+	OSA_SemHndl m_updateSem;
+	OSA_SemHndl *m_notifySem;
+	bool m_bRun;
+	void update();
+	static void *thrdhndl_update(void *context)
+	{
+		Core_1001 *core = (Core_1001 *)context;
+		while(core->m_bRun){
+			OSA_semWait(&core->m_updateSem, OSA_TIMEOUT_FOREVER);
+			if(!core->m_bRun)
+				break;
+			core->update();
+			if(core->m_notifySem != NULL)
+				OSA_semSignal(core->m_notifySem);
+		}
+		return NULL;
+	}
+public:
+	static unsigned int ID;
+	virtual int init(void *pParam, int paramSize)
+	{
+		OSA_assert(sizeof(CORE1001_INIT_PARAM) == paramSize);
+		CORE1001_INIT_PARAM *initParam = (CORE1001_INIT_PARAM*)pParam;
+		m_notifySem = initParam->notify;
+		OSA_semCreate(&m_updateSem, 1, 0);
+		int ret = cr_local::init(initParam, &m_updateSem);
+		memset(&m_stats, 0, sizeof(m_stats));
+		update();
+		for(int chId=0; chId<initParam->nChannels; chId++)
+			m_dc[chId] = cr_local::general->m_dc[chId];
+		m_bRun = true;
+		start_thread(thrdhndl_update, this);
+		return ret;
+	}
+	virtual int uninit()
+	{
+		m_bRun = false;
+		OSA_semSignal(&m_updateSem);
+		int ret = cr_local::uninit();
+		memset(&m_stats, 0, sizeof(m_stats));
+		OSA_semDelete(&m_updateSem);
+		return ret;
+	}
+	virtual void processFrame(int chId, unsigned char *data, struct v4l2_buffer capInfo, int format)
+	{
+		cr_local::processFrame(chId, data, capInfo, format);
+	}
+
+	virtual int setMainChId(int chId, int fovId, int ndrop, cv::Size acqSize)
+	{
+		UTC_SIZE sz;
+		sz.width = acqSize.width; sz.height = acqSize.height;
+		OSA_printf("%s %d: ...", __func__, __LINE__);
+		int ret = cr_local::setMainChId(chId, fovId, ndrop, sz);
+		OSA_printf("%s %d: ...", __func__, __LINE__);
+		update();
+		OSA_printf("%s %d: ... leave\n", __func__, __LINE__);
+		return ret;
+	}
+	virtual int enableTrack(bool enable, cv::Size winSize, bool bFixSize)
+	{
+		UTC_SIZE sz;
+		sz.width = winSize.width; sz.height = winSize.height;
+		int ret = cr_local::enableTrack(enable, sz, bFixSize);
+		update();
+		return ret;
+	}
+	virtual int enableTrack(bool enable, Rect2f winRect, bool bFixSize)
+	{
+		UTC_RECT_float rc;
+		rc.x = winRect.x; rc.y = winRect.y;
+		rc.width = winRect.width; rc.height = winRect.height;
+		int ret = cr_local::enableTrack(enable, rc, bFixSize);
+		update();
+		return ret;
+	}
+	virtual int enableMMTD(bool enable, int nTarget)
+	{
+		int ret = cr_local::enableMMTD(enable, nTarget);
+		update();
+		return ret;
+	}
+	virtual int enableTrackByMMTD(int index, cv::Size *winSize, bool bFixSize)
+	{
+		int ret = cr_local::enableTrackByMMTD(index, winSize, bFixSize);
+		update();
+		return ret;
+	}
+	virtual int enableEnh(bool enable)
+	{
+		int ret = cr_local::enableEnh(enable);
+		update();
+		return ret;
+	}
+	virtual int enableOSD(bool enable)
+	{
+		int ret = cr_local::enableOSD(enable);
+		update();
+		return ret;
+	}
+	virtual int enableEncoder(int chId, bool enable)
+	{
+		int ret = cr_local::enableEncoder(chId, enable);
+	}
+	virtual int setAxisPos(cv::Point pos)
+	{
+		int ret = cr_local::setAxisPos(pos);
+		update();
+		return ret;
+	}
+	virtual int saveAxisPos()
+	{
+		int ret = cr_local::saveAxisPos();
+		update();
+		return ret;
+	}
+	virtual int setTrackPosRef(cv::Point2f ref)
+	{
+		int ret = cr_local::setTrackPosRef(ref);
+		update();
+		return ret;
+	}
+	virtual int setTrackCoast(int nFrames)
+	{
+		int ret = cr_local::setTrackCoast(nFrames);
+		update();
+		return ret;
+	}
+	virtual int setEZoomx(int value)
+	{
+		int ret = cr_local::setEZoomx(value);
+		update();
+		return ret;
+	}
+	virtual int setOSDColor(int yuv)
+	{
+		int ret = cr_local::setOSDColor(yuv);
+		update();
+		return ret;
+	}
+	virtual int setEncTransLevel(int iLevel)
+	{
+		int ret = cr_local::setEncTransLevel(iLevel);
+		update();
+		return ret;
+	}
+};
+unsigned int Core_1001::ID = COREID_1001;
+void Core_1001::update()
+{
+	//OSA_printf("%s %d: enter.", __func__, __LINE__);
+	m_stats.mainChId = cr_local::curChannelFlag;
+	m_stats.acqWinSize.width = cr_local::general->m_sizeAcqWin.width;
+	m_stats.acqWinSize.width = cr_local::general->m_sizeAcqWin.width;
+	m_stats.enableTrack = cr_local::enableTrackFlag;
+	m_stats.enableMMTD = cr_local::enableMMTDFlag;
+	m_stats.iTrackorStat = cr_local::general->m_iTrackStat;
+	UTC_RECT_float curRC = cr_local::general->m_rcTrk;
+	m_stats.trackPos.x = curRC.x+curRC.width/2;
+	m_stats.trackPos.y = curRC.y+curRC.height/2;
+	m_stats.trackWinSize.width = curRC.width;
+	m_stats.trackWinSize.height = curRC.height;
+	for(int i=0; i<CORE_TGT_NUM_MAX; i++){
+		m_stats.tgts[i].valid = cr_local::mmtd->m_target[i].valid;
+		m_stats.tgts[i].Box = cr_local::mmtd->m_target[i].Box;
+	}
+
+	for(int chId = 0; chId < cr_local::nValidChannels; chId++){
+		CORE1001_CHN_STATS *chn = &m_stats.chn[chId];
+		chn->imgSize = cr_local::general->m_imgSize[chId];
+		chn->fovId = cr_local::curFovIdFlag[chId];
+		chn->axis.x = cr_local::general->m_AxisCalibX[chId][chn->fovId];
+		chn->axis.y = cr_local::general->m_AxisCalibY[chId][chn->fovId];
+		chn->enableEnh = cr_local::enableEnhFlag[chId];
+		chn->iEZoomx = cr_local::ezoomxFlag[chId];
+		chn->enableEncoder = cr_local::enableEncoderFlag[chId];//enctran.m_enable[chId];
+	}
+}
+
+static int rafcnt = 0;
+static ICore *coreRaf = NULL;
+ICore* ICore::Qury(int coreID)
+{
+	if(coreRaf != NULL){
+		rafcnt ++;
+		return coreRaf;
+	}
+	if(Core_1001::ID == coreID){
+		coreRaf = new Core_1001;
+		rafcnt =1;
+	}
+
+	return coreRaf;
+}
+void ICore::Release(ICore* core)
+{
+	if(core != NULL && coreRaf != NULL && core == coreRaf){
+		rafcnt --;
+		if(rafcnt == 0){
+			delete coreRaf;
+			coreRaf = NULL;
+		}
+	}
+}
+
+
