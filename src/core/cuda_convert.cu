@@ -234,6 +234,73 @@ void gpuConvertYUYVtoBGR_dev(unsigned char *src, unsigned char *d_dst,
 //////////////////////////////////////////////////////////////////////
 //
 //
+__global__ void gpuConvertYUYVtoGray_kernel(unsigned char *src,
+		unsigned char *dY,
+		unsigned int width, unsigned int height)
+{
+	int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	if (idx*2 >= width) {
+		return;
+	}
+
+	int halfH = height>>1;
+	for (int i = 0; i < halfH; ++i) {
+		int y00 = src[i*2*width*2+idx*4+0];
+		int y01 = src[i*2*width*2+idx*4+2];
+		int y10 = src[(i*2+1)*width*2+idx*4+0];
+		int y11 = src[(i*2+1)*width*2+idx*4+2];
+
+		dY[i*2*width+idx*2+0] = y00;
+		dY[i*2*width+idx*2+1] = y01;
+		dY[(i*2+1)*width+idx*2+0] = y10;
+		dY[(i*2+1)*width+idx*2+1] = y11;
+	}
+}
+
+void gpuConvertYUYVtoGray(unsigned char *src, unsigned char *dst,
+		unsigned int width, unsigned int height)
+{
+	unsigned char *d_src = NULL;
+	unsigned char *d_dst = NULL;
+	size_t planeSize = width * height * sizeof(unsigned char);
+
+	unsigned int flags;
+	bool srcIsMapped = (cudaHostGetFlags(&flags, src) == cudaSuccess) && (flags & cudaHostAllocMapped);
+	bool dstIsMapped = (cudaHostGetFlags(&flags, dst) == cudaSuccess) && (flags & cudaHostAllocMapped);
+
+	if (srcIsMapped) {
+		d_src = src;
+		cudaStreamAttachMemAsync(NULL, src, 0, cudaMemAttachGlobal);
+	} else {
+		cudaMalloc(&d_src, planeSize * 2);
+		cudaMemcpy(d_src, src, planeSize * 2, cudaMemcpyHostToDevice);
+	}
+	if (dstIsMapped) {
+		d_dst = dst;
+		cudaStreamAttachMemAsync(NULL, dst, 0, cudaMemAttachGlobal);
+	} else {
+		cudaMalloc(&d_dst, planeSize);
+	}
+
+	unsigned int blockSize = 1024;
+	unsigned int numBlocks = (width / 2 + blockSize - 1) / blockSize;
+	gpuConvertYUYVtoGray_kernel<<<numBlocks, blockSize>>>(d_src,d_dst, width, height);
+	cudaStreamAttachMemAsync(NULL, dst, 0, cudaMemAttachHost);
+	cudaStreamSynchronize(NULL);
+
+	if (!srcIsMapped) {
+		cudaFree(d_src);
+	}
+	if (!dstIsMapped) {
+		cudaMemcpy(dst, d_dst, planeSize, cudaMemcpyDeviceToHost);
+		cudaFree(d_dst);
+	}
+}
+
+
+//////////////////////////////////////////////////////////////////////
+//
+//
 __global__ void gpuConvertYUYVtoI420_kernel(unsigned char *src,
 		unsigned char *dY,unsigned char *dU,unsigned char *dV,
 		unsigned int width, unsigned int height)
@@ -713,15 +780,15 @@ void gpuConvertGRAYtoI420AndZoomxAndOsd(unsigned char  *osd,unsigned char *src, 
 //
 __device__ inline int meanValuePix2_yuyv(unsigned char *img)
 {
-	return ((img[0]+img[2])>>1);
+	return (((int)img[0]+img[2])>>1);
 }
 __device__ inline int meanValuePix2_yuyv(unsigned char *img, int width)
 {
-	return ((img[0]+img[width<<1])>>1);
+	return (((int)img[0]+img[width<<1])>>1);
 }
 __device__ inline int meanValuePix4_yuyv(unsigned char *img, int width)
 {
-	return ((img[0]+img[2]+img[width<<1]+img[width<<1+2])>>2);
+	return (((int)img[0]+img[2]+img[width<<1]+img[width<<1+2])>>2);
 }
 /*
 __global__ void gpuConvertYUYVtoI420AndZoomxAndOsd_kernel(unsigned char *osd,unsigned char *src,
@@ -1010,6 +1077,7 @@ typedef struct _CUOBJ{
 }CUOBJ, *PCUOBJ;
 static CUOBJ gObjs[CHANNELS_MAX];
 static OSA_MutexHndl *mutex = NULL;
+static bool bCreateMutex = false;
 #define LOCK     OSA_mutexLock(mutex);
 #define UNLOCK   OSA_mutexUnlock(mutex);
 static cudaError_t cuConvert_yuyvToI420andOsd(PCUOBJ pObj, Mat src, Mat osd, Mat &dst, int colorYUV);
@@ -1023,7 +1091,7 @@ static cudaError_t cuConvert_grayToI420andOsd_async(PCUOBJ pObj, Mat src, Mat os
 static cudaError_t cuConvert_grayToI420AndZoomxAndOsd_async(PCUOBJ pObj, Mat src, Mat osd, Mat &dst, int zoomx, int colorYUV);
 static cudaError_t cuConvert_grayToI420AndZoomx_async(PCUOBJ pObj, Mat src, Mat &dst, int zoomx);
 
-cudaError_t cuConvertInit(int nChannels)
+cudaError_t cuConvertInit(int nChannels, OSA_MutexHndl *mutexLock)
 {
 	cudaError_t ret = cudaSuccess;
 	int count, i;
@@ -1068,9 +1136,12 @@ cudaError_t cuConvertInit(int nChannels)
 		gObjs[chId].elapsedTimeMin = 1000.0f;
 	}
 
+	if(mutexLock != NULL)
+		mutex = mutexLock;
 	if(mutex == NULL){
 		mutex = new OSA_MutexHndl;
 		OSA_mutexCreate(mutex);
+		bCreateMutex = true;
 	}
 
 	return ret;
@@ -1100,8 +1171,11 @@ cudaError_t cuConvertUinit()
 
 		gObjs[chId].bAlloc = false;
 	}
-	OSA_mutexDelete(mutex);
-	delete mutex;
+	if(bCreateMutex){
+		OSA_mutexDelete(mutex);
+		delete mutex;
+		bCreateMutex = false;
+	}
 	mutex = NULL;
 
 	return cudaSuccess;
@@ -1642,8 +1716,8 @@ __inline__ void elapsedTimeCals(int chId, const char *func)
 	gObjs[chId].elapsedTimeMax = max(gObjs[chId].elapsedTimeMax, elapsedTime);
 	gObjs[chId].elapsedTimeMin = min(gObjs[chId].elapsedTimeMin, elapsedTime);
 	gObjs[chId].elapsedTimeSum += elapsedTime;
-	if(gObjs[chId].count == 10000){
-		printf("\n%s: ch%d Time taken %3.1f(%3.1f, %3.1f, %3.1f) ms", func, chId,
+	if(gObjs[chId].count == 30*10){
+		printf("\n[%d]%s: ch%d Time taken %3.1f(%3.1f, %3.1f, %3.1f) ms", OSA_getCurTimeInMsec(), func, chId,
 				elapsedTime, gObjs[chId].elapsedTimeMax, gObjs[chId].elapsedTimeMin, gObjs[chId].elapsedTimeSum/gObjs[chId].count);
 		gObjs[chId].elapsedTimeMax = 0.0f; gObjs[chId].elapsedTimeMin = 1000.0f; gObjs[chId].elapsedTimeSum = 0.0f;
 		gObjs[chId].count = 0;
@@ -1667,6 +1741,7 @@ cudaError_t cuConvert(int chId, Mat src, Mat osd, Mat &dst, int zoomx, int color
 	if(ret != cudaSuccess){
 		printf("%s(%i)  : cudaGetLastError() CUDA error: %d\n", __FILE__, __LINE__, (int)cudaGetLastError());
 	}
+	ret = cudaDeviceSynchronize();
 	gObjs[chId].stampEnd = getTickCount();
 	elapsedTimeCals(chId, __func__);
 
@@ -1689,7 +1764,7 @@ cudaError_t cuConvertEnh(int chId, cv::Mat src, cv::Mat osd, cv::Mat &dst, int z
 
 	Mat enhSrc(src.rows, src.cols,CV_8UC1, gObjs[chId].d_mem[gObjs[chId].imem]);
 	Mat enhDst(src.rows, src.cols,CV_8UC1, gObjs[chId].d_mem[gObjs[chId].imem+1]);
-	cuClahe(enhSrc, enhDst, (src.cols==1920)?4:8, (src.cols==1920)?4:8);
+	cuClahe(enhSrc, enhDst, (src.cols==1920)?8:8, (src.cols==1920)?4:8);
 	int planeSize = src.rows*src.cols;
 	ret = cudaMemcpy(gObjs[chId].d_mem[gObjs[chId].imem+1]+planeSize,
 			gObjs[chId].d_mem[gObjs[chId].imem]+planeSize, planeSize>>1, cudaMemcpyDeviceToDevice);
@@ -1699,7 +1774,7 @@ cudaError_t cuConvertEnh(int chId, cv::Mat src, cv::Mat osd, cv::Mat &dst, int z
 	if(ret != cudaSuccess){
 		printf("%s(%i)  : cudaGetLastError() CUDA error: %d\n", __FILE__, __LINE__, (int)cudaGetLastError());
 	}
-
+	ret = cudaDeviceSynchronize();
 	gObjs[chId].stampEnd = getTickCount();
 	elapsedTimeCals(chId, __func__);
 
@@ -1720,6 +1795,7 @@ cudaError_t cuConvert_async(int chId, Mat src, Mat osd, Mat &dst, int zoomx, int
 	if(ret != cudaSuccess){
 		printf("%s(%i)  : cudaGetLastError() CUDA error: %d\n", __FILE__, __LINE__, (int)cudaGetLastError());
 	}
+	ret = cudaDeviceSynchronize();
 	gObjs[chId].stampEnd = getTickCount();
 	elapsedTimeCals(chId, __func__);
 
@@ -1740,6 +1816,7 @@ cudaError_t cuConvert_async(int chId, Mat src, Mat &dst, int zoomx)
 	if(ret != cudaSuccess){
 		printf("%s(%i)  : cudaGetLastError() CUDA error: %d\n", __FILE__, __LINE__, (int)cudaGetLastError());
 	}
+	ret = cudaDeviceSynchronize();
 	gObjs[chId].stampEnd = getTickCount();
 	elapsedTimeCals(chId, __func__);
 
@@ -1761,7 +1838,7 @@ cudaError_t cuConvertEnh_async(int chId, Mat src, Mat osd, Mat &dst, int zoomx, 
 
 	Mat enhSrc(src.rows, src.cols,CV_8UC1, gObjs[chId].d_mem[gObjs[chId].imem]);
 	Mat enhDst(src.rows, src.cols,CV_8UC1, gObjs[chId].d_mem[gObjs[chId].imem+1]);
-	cuClahe(enhSrc, enhDst, (src.cols==1920)?4:8, (src.cols==1920)?4:8);
+	cuClahe(enhSrc, enhDst, (src.cols==1920)?8:8, (src.cols==1920)?4:8);
 	int planeSize = src.rows*src.cols;
 	ret = cudaMemcpy(gObjs[chId].d_mem[gObjs[chId].imem+1]+planeSize,
 			gObjs[chId].d_mem[gObjs[chId].imem]+planeSize, planeSize>>1, cudaMemcpyDeviceToDevice);
@@ -1771,6 +1848,7 @@ cudaError_t cuConvertEnh_async(int chId, Mat src, Mat osd, Mat &dst, int zoomx, 
 	if(ret != cudaSuccess){
 		printf("%s(%i)  : cudaGetLastError() CUDA error: %d\n", __FILE__, __LINE__, (int)cudaGetLastError());
 	}
+	ret = cudaDeviceSynchronize();
 	gObjs[chId].stampEnd = getTickCount();
 	elapsedTimeCals(chId, __func__);
 
@@ -1792,7 +1870,7 @@ cudaError_t cuConvertEnh_async(int chId, Mat src, Mat &dst, int zoomx)
 
 	Mat enhSrc(src.rows, src.cols,CV_8UC1, gObjs[chId].d_mem[gObjs[chId].imem]);
 	Mat enhDst(src.rows, src.cols,CV_8UC1, gObjs[chId].d_mem[gObjs[chId].imem+1]);
-	cuClahe(enhSrc, enhDst, (src.cols==1920)?4:8, (src.cols==1920)?4:8);
+	cuClahe(enhSrc, enhDst, (src.cols==1920)?8:8, (src.cols==1920)?4:8);
 	int planeSize = src.rows*src.cols;
 	ret = cudaMemcpy(gObjs[chId].d_mem[gObjs[chId].imem+1]+planeSize,
 			gObjs[chId].d_mem[gObjs[chId].imem]+planeSize, planeSize>>1, cudaMemcpyDeviceToDevice);
@@ -1802,6 +1880,7 @@ cudaError_t cuConvertEnh_async(int chId, Mat src, Mat &dst, int zoomx)
 	if(ret != cudaSuccess){
 		printf("%s(%i)  : cudaGetLastError() CUDA error: %d\n", __FILE__, __LINE__, (int)cudaGetLastError());
 	}
+	ret = cudaDeviceSynchronize();
 	gObjs[chId].stampEnd = getTickCount();
 	elapsedTimeCals(chId, __func__);
 
@@ -1809,13 +1888,14 @@ cudaError_t cuConvertEnh_async(int chId, Mat src, Mat &dst, int zoomx)
 	return ret;
 }
 
-static cudaError_t cuConvert_yuv2bgr_yuyv_async(PCUOBJ pObj, Mat src, Mat &dst)
+static cudaError_t cuConvert_yuv2bgr_yuyv_async(PCUOBJ pObj, Mat src, Mat &dst, int flag)
 {
 	cudaError_t ret = cudaSuccess;
+	OSA_assert(dst.data != NULL);
 	int i, width = src.cols, height = src.rows;
 
 	unsigned char *d_src = pObj->d_src;
-	unsigned char *d_dst = dst.data;
+	unsigned char *d_dst = (flag == CUT_FLAG_devAlloc) ? dst.data : pObj->d_mem[0];
 
 	unsigned int blockSize = 1024;
 	unsigned int numBlocks = (width / 2 + blockSize - 1) / blockSize;
@@ -1831,6 +1911,13 @@ static cudaError_t cuConvert_yuv2bgr_yuyv_async(PCUOBJ pObj, Mat src, Mat &dst)
 				d_src + nBCs*i, d_dst + nBCd*i,
 				width, height/STREAM_CNT);
 	}
+	if(dst.data != d_dst)
+	{
+		for(i = 0; i<STREAM_CNT; i++){
+			ret = cudaMemcpyAsync(dst.data + nBCd*i,
+					d_dst + nBCd*i, nBCd, cudaMemcpyDeviceToHost, pObj->streams[i]);
+		}
+	}
 	for(i = 0; i<STREAM_CNT; i++){
 		ret = cudaStreamSynchronize(pObj->streams[i]);
 	}
@@ -1841,10 +1928,14 @@ cudaError_t cuConvert_yuv2bgr_yuyv_async(int chId, Mat src, Mat &dst, int flag)
 {
 	LOCK;
 	cudaError_t ret = cudaSuccess;
-	ret = cuConvert_yuv2bgr_yuyv_async(&gObjs[chId], src, dst);
+	gObjs[chId].stampBegin = getTickCount();
+	ret = cuConvert_yuv2bgr_yuyv_async(&gObjs[chId], src, dst, flag);
 	if(ret != cudaSuccess){
 		printf("%s(%i)  : cudaGetLastError() CUDA error: %d\n", __FILE__, __LINE__, (int)cudaGetLastError());
 	}
+	ret = cudaDeviceSynchronize();
+	gObjs[chId].stampEnd = getTickCount();
+	elapsedTimeCals(chId, __func__);
 	UNLOCK;
 	return ret;
 }
@@ -1853,15 +1944,17 @@ cudaError_t cuConvertEnh_yuv2bgr_yuyv_async(int chId, Mat src, Mat &dst, int fla
 {
 	LOCK;
 	cudaError_t ret = cudaSuccess;
-
+	gObjs[chId].stampBegin = getTickCount();
 	Mat enhSrc(src.rows, src.cols,CV_8UC3, gObjs[chId].d_mem[0]);
-	ret = cuConvert_yuv2bgr_yuyv_async(&gObjs[chId], src, enhSrc);
+	ret = cuConvert_yuv2bgr_yuyv_async(&gObjs[chId], src, enhSrc, CUT_FLAG_devAlloc);
 	if(ret != cudaSuccess){
 		printf("%s(%i)  : cudaGetLastError() CUDA error: %d\n", __FILE__, __LINE__, (int)cudaGetLastError());
 	}
 	//ret = cudaMemcpy(dst.data,enhSrc.data, src.rows*src.cols*dst.channels(),cudaMemcpyDeviceToDevice);
 	cuClahe(enhSrc, dst, (src.cols==1920)?8:8, (src.cols==1920)?4:8, 3.0f);
-
+	ret = cudaDeviceSynchronize();
+	gObjs[chId].stampEnd = getTickCount();
+	elapsedTimeCals(chId, __func__);
 	UNLOCK;
 	return ret;
 }
@@ -1870,10 +1963,14 @@ cudaError_t cuConvertEnh_gray(int chId, cv::Mat src, cv::Mat &dst, int flag)
 {
 	LOCK;
 	cudaError_t ret = cudaSuccess;
+	gObjs[chId].stampBegin = getTickCount();
 	Mat enhSrc(src.rows, src.cols,CV_8UC1, gObjs[chId].d_src);
 	ret = cudaMemcpy(enhSrc.data, src.data, src.rows*src.cols, cudaMemcpyHostToDevice);
 	OSA_assert(ret == cudaSuccess);
-	cuClahe(enhSrc, dst, (src.cols==1920)?4:8, (src.cols==1920)?4:8);
+	cuClahe(enhSrc, dst, (src.cols==1920)?8:8, (src.cols==1920)?4:8);
+	ret = cudaDeviceSynchronize();
+	gObjs[chId].stampEnd = getTickCount();
+	elapsedTimeCals(chId, __func__);
 	UNLOCK;
 	return ret;
 }
@@ -1945,6 +2042,7 @@ cudaError_t cuConvertConn_yuv2bgr_i420(int chId, Mat &dst, int flag)
 	if(ret != cudaSuccess){
 		printf("%s(%i)  : cudaGetLastError() CUDA error: %d\n", __FILE__, __LINE__, (int)cudaGetLastError());
 	}
+	ret = cudaDeviceSynchronize();
 	UNLOCK;
 	return ret;
 }

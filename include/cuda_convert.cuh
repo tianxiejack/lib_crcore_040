@@ -44,6 +44,9 @@ void gpuConvertYUYVtoRGB(unsigned char *src, unsigned char *dst,
 void gpuConvertYUYVtoBGR(unsigned char *src, unsigned char *dst,
 		unsigned int width, unsigned int height);
 
+void gpuConvertYUYVtoGray(unsigned char *src, unsigned char *dst,
+		unsigned int width, unsigned int height);
+
 void gpuConvertYUYVtoI420(unsigned char *src, unsigned char *dst,
 		unsigned int width, unsigned int height);
 
@@ -62,7 +65,7 @@ void gpuConvertGRAYtoI420AndZoomxAndOsd(unsigned char  *osd,unsigned char *src, 
 #define CUT_FLAG_hostAlloc	(1)
 #define CUT_FLAG_devAlloc	(2)
 
-cudaError_t cuConvertInit(int nChannels);
+cudaError_t cuConvertInit(int nChannels, OSA_MutexHndl *mutexLock = NULL);
 cudaError_t cuConvertUinit();
 cudaError_t cuConvert_async(int chId, cv::Mat src, cv::Mat osd, cv::Mat &dst, int zoomx, int colorYUV);
 cudaError_t cuConvertEnh_async(int chId, cv::Mat src, cv::Mat osd, cv::Mat &dst, int zoomx, int colorYUV);

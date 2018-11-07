@@ -17,6 +17,7 @@
 typedef struct _TRKOSD_unit_info{
 	bool bHasDraw;
 	bool bNeedDraw;
+	int thickness;
 	int iStyle;
 	cv::Point pos;
 	UTC_RECT_float rc;
@@ -37,7 +38,7 @@ public:
 	virtual void Ontimer();
 	virtual bool OnPreProcess(int chId, Mat &frame);
 	virtual bool OnProcess(int chId, Mat &frame);
-	virtual int OnOSD(int chId, Mat dc, CvScalar color);
+	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color, int thickness);
 
 	int WriteCalibAxisToFile();
 	int ReadCalibAxisFromFile();
@@ -46,8 +47,8 @@ public:
 	bool m_bHide;
 
 protected:
-	void osd_cvdraw_cross(Mat &dc, int ix, int iy, float scalex, float scaley, bool bShow);
-	void osd_cvdraw_trk(Mat &dc, UTC_RECT_float rcTrack, int iStat, bool bShow = true);
+	void osd_cvdraw_cross(Mat &dc, int ix, int iy, float scalex, float scaley, int thickness, bool bShow);
+	void osd_cvdraw_trk(Mat &dc, UTC_RECT_float rcTrack, int iStat, int thickness, bool bShow = true);
 
 	enum{
 		U_WIN = 0,

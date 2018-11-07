@@ -7,6 +7,9 @@
 #include <glew.h>
 #include <glut.h>
 #include <freeglut_ext.h>
+#include "blobDetectProcess.hpp"
+#include "backgroundProcess.hpp"
+#include "motionDetectProcess.hpp"
 #include "mmtdProcess.hpp"
 #include "GeneralProcess.hpp"
 #include "Displayer.hpp"
@@ -16,25 +19,38 @@
 #include "thread.h"
 #include "crCore.hpp"
 
+#define isEqual(a,b) (fabs((a)-(b))<=1.0e-6)
+
 namespace cr_local
 {
-static CEncTrans enctran;
+static CEncTrans *enctran = NULL;
 static CRender *render = NULL;
 static IProcess *proc = NULL;
+static CBlobDetectProcess *blob = NULL;
+static CBkgdDetectProcess *bkgd = NULL;
+static CMotionDetectProcess *motion = NULL;
 static CMMTDProcess *mmtd = NULL;
 static CGeneralProc *general = NULL;
 
 static int curChannelFlag = 0;
+static int curSubChannelIdFlag = -1;
 static int curFovIdFlag[CORE_CHN_MAX];
+static bool curFixSizeFlag = false;
 static bool enableTrackFlag = false;
 static bool enableMMTDFlag = false;
+static bool enableMotionDetectFlag = false;
 static bool enableEnhFlag[CORE_CHN_MAX];
+static bool enableBlobFlag = false;
+static int bindBlendFlag[CORE_CHN_MAX];
+static int bindBlendTFlag[CORE_CHN_MAX];
 static bool enableEncoderFlag[CORE_CHN_MAX];
 static bool enableOSDFlag = true;
 static int ezoomxFlag[CORE_CHN_MAX];
+static float scaleFlag[CORE_CHN_MAX];
 static int colorYUVFlag = WHITECOLOR;
 static int nValidChannels = CORE_CHN_MAX;
 static cv::Size channelsImgSize[CORE_CHN_MAX];
+static int channelsFormat[CORE_CHN_MAX];
 
 static int defaultEncParamTab[][8] = {
 	//bitrate; minQP; maxQP;minQI;maxQI;minQB;maxQB;
@@ -51,9 +67,12 @@ static void localInit(int nChannels)
 	enableTrackFlag = false;
 	enableMMTDFlag = false;
 	memset(enableEnhFlag, 0, sizeof(enableEnhFlag));
+	memset(bindBlendFlag, 0, sizeof(bindBlendFlag));
 	for(int i=0; i<CORE_CHN_MAX; i++){
 		enableEncoderFlag[i] = true;
 		ezoomxFlag[i] = 1;
+		scaleFlag[i] = 1.0f;
+		bindBlendTFlag[i] = -1;
 	}
 	enableOSDFlag = true;
 	colorYUVFlag = WHITECOLOR;
@@ -81,9 +100,9 @@ static int setEncTransLevel(int iLevel)
 	encPrm.maxQI = userEncParamTab[iLevel][4];
 	encPrm.minQB = userEncParamTab[iLevel][5];
 	encPrm.maxQB = userEncParamTab[iLevel][6];
-	enctran.dynamic_config(CEncTrans::CFG_TransLevel, iLevel, NULL);
+	enctran->dynamic_config(CEncTrans::CFG_TransLevel, iLevel, NULL);
 	for(int chId=0; chId<nValidChannels; chId++)
-		enctran.dynamic_config(CEncTrans::CFG_EncPrm, chId, &encPrm);
+		enctran->dynamic_config(CEncTrans::CFG_EncPrm, chId, &encPrm);
 
 	return iret;
 }
@@ -98,18 +117,23 @@ static int setMainChId(int chId, int fovId, int ndrop, UTC_SIZE acqSize)
 		return OSA_EFAIL;
 	mcPrm.fovId = fovId;
 	mcPrm.iIntervalFrames = ndrop;
+	proc->dynamic_config(CTrackerProc::VP_CFG_AcqWinSize, curFixSizeFlag, &acqSize, sizeof(acqSize));
+	proc->dynamic_config(CProcessBase::VP_CFG_MainChId, chId, &mcPrm, sizeof(mcPrm));
 	if(render!= NULL){
-		//OSA_printf("%s %d: ...", __func__, __LINE__);
 		render->dynamic_config(CRender::DS_CFG_ChId, 0, &chId);
 	}
-	//OSA_printf("%s %d: ...", __func__, __LINE__);
-	proc->dynamic_config(CTrackerProc::VP_CFG_AcqWinSize, 0, &acqSize, sizeof(acqSize));
-	proc->dynamic_config(CTrackerProc::VP_CFG_MainChId, chId, &mcPrm, sizeof(mcPrm));
-	proc->dynamic_config(CMMTDProcess::VP_CFG_MainChId, chId, &mcPrm, sizeof(mcPrm));
 	curChannelFlag = chId;
 	curFovIdFlag[chId] = fovId;
-	//OSA_printf("%s %d: ... leave\n", __func__, __LINE__);
 	return iret;
+}
+
+static int setSubChId(int chId)
+{
+	curSubChannelIdFlag = chId;
+	if(render!= NULL){
+		render->dynamic_config(CRender::DS_CFG_ChId, 2, &chId);
+	}
+	return OSA_SOK;
 }
 
 static int enableTrack(bool enable, UTC_SIZE winSize, bool bFixSize)
@@ -118,6 +142,7 @@ static int enableTrack(bool enable, UTC_SIZE winSize, bool bFixSize)
 	proc->dynamic_config(CTrackerProc::VP_CFG_AcqWinSize, bFixSize, &winSize, sizeof(winSize));
 	proc->dynamic_config(CTrackerProc::VP_CFG_TrkEnable, enable);
 	enableTrackFlag = enable;
+	curFixSizeFlag = bFixSize;
 	return iret;
 }
 
@@ -127,21 +152,32 @@ static int enableTrack(bool enable, UTC_RECT_float winRect, bool bFixSize)
 	proc->dynamic_config(CTrackerProc::VP_CFG_TrkEnable, enable, &winRect, sizeof(winRect));
 	proc->dynamic_config(CTrackerProc::VP_CFG_AcqWinSize, bFixSize);
 	enableTrackFlag = enable;
+	curFixSizeFlag = bFixSize;
 	return iret;
 }
 
 static int enableMMTD(bool enable, int nTarget)
 {
+#if 1
 	int iret = OSA_SOK;
 	if(enable)
 		proc->dynamic_config(CMMTDProcess::VP_CFG_MMTDTargetCount, nTarget);
 	proc->dynamic_config(CMMTDProcess::VP_CFG_MMTDEnable, enable);
 	enableMMTDFlag = enable;
 	return iret;
+#endif
+}
+
+static int enableMotionDetect(bool enable)
+{
+	proc->dynamic_config(CMotionDetectProcess::VP_CFG_MONTIONEnable, enable);
+	enableMotionDetectFlag = enable;
+	return OSA_SOK;
 }
 
 static int enableTrackByMMTD(int index, cv::Size *winSize, bool bFixSize)
 {
+#if 1
 	if(index<0 || index>=MAX_TGT_NUM)
 		return OSA_EFAIL;
 
@@ -160,13 +196,62 @@ static int enableTrackByMMTD(int index, cv::Size *winSize, bool bFixSize)
 	}
 
 	proc->dynamic_config(CTrackerProc::VP_CFG_AcqWinSize, bFixSize);
+	curFixSizeFlag = bFixSize;
 	return proc->dynamic_config(CTrackerProc::VP_CFG_TrkEnable, true, &acqrc, sizeof(acqrc));
+#endif
 }
 
 static int enableEnh(bool enable)
 {
 	enableEnhFlag[curChannelFlag] = enable;
 	return OSA_SOK;
+}
+
+static int enableEnh(int chId, bool enable)
+{
+	if(chId<0 || chId >=CORE_CHN_MAX)
+		return OSA_EFAIL;
+	enableEnhFlag[chId] = enable;
+	return OSA_SOK;
+}
+
+static int enableBlob(bool enable)
+{
+	proc->dynamic_config(CBlobDetectProcess::VP_CFG_BLOBTargetCount, 1);
+	proc->dynamic_config(CBlobDetectProcess::VP_CFG_BLOBEnable, enable);
+	enableBlobFlag = enable;
+	return OSA_SOK;
+}
+
+static int bindBlend(int chId, int blendchId, cv::Matx44f  matric)
+{
+	int ret = OSA_SOK;
+	if(chId<0 || chId >=CORE_CHN_MAX)
+		return OSA_EFAIL;
+	if(blendchId>=0 && blendchId < CORE_CHN_MAX){
+		bindBlendFlag[blendchId] |= 1<<chId;
+		bindBlendTFlag[chId] = blendchId;
+	}else{
+		int curBlendchId = bindBlendTFlag[chId];
+		if(curBlendchId>=0)
+			bindBlendFlag[curBlendchId] &= ~(1<<chId);
+		bindBlendTFlag[chId] = -1;
+	}
+	if(render!= NULL){
+		if(blendchId>=0 && blendchId < CORE_CHN_MAX){
+			ret = render->dynamic_config(CRender::DS_CFG_BlendTransMat, chId*DS_CHAN_MAX+blendchId, matric.val);
+			ret = proc->dynamic_config(CBkgdDetectProcess::VP_CFG_BkgdDetectEnable, true, &blendchId, sizeof(blendchId));
+		}else{
+			ret = proc->dynamic_config(CBkgdDetectProcess::VP_CFG_BkgdDetectEnable, false);
+		}
+		ret = render->dynamic_config(CRender::DS_CFG_BlendChId, chId, &blendchId);
+	}
+	return ret;
+}
+
+static int bindBlend(int blendchId, cv::Matx44f matric)
+{
+	return bindBlend(curChannelFlag, blendchId, matric);
 }
 
 static int enableOSD(bool enable)
@@ -178,7 +263,7 @@ static int enableOSD(bool enable)
 int enableEncoder(int chId, bool enable)
 {
 	enableEncoderFlag[chId] = enable;
-	return enctran.dynamic_config(CEncTrans::CFG_Enable, chId, &enable);
+	return enctran->dynamic_config(CEncTrans::CFG_Enable, chId, &enable);
 }
 
 static int setAxisPos(cv::Point pos)
@@ -195,11 +280,25 @@ static int saveAxisPos()
 	return proc->dynamic_config(CTrackerProc::VP_CFG_SaveAxisToFile, 0);
 }
 
-static int setEZoomx(int value)//1/2/4
+static int setEZoomx(int value)
 {
-	if(value != 1 && value != 2 && value != 4)
-		return OSA_EFAIL;
+	if(enctran != NULL){
+		if(value != 1 && value != 2 && value != 4)
+			return OSA_EFAIL;
+	}
 	ezoomxFlag[curChannelFlag] = value;
+	return OSA_SOK;
+}
+
+static int setEZoomx(int chId, int value)
+{
+	if(enctran != NULL){
+		if(value != 1 && value != 2 && value != 4)
+			return OSA_EFAIL;
+	}
+	if(chId<0 || chId >=CORE_CHN_MAX)
+		return OSA_EFAIL;
+	ezoomxFlag[chId] = value;
 	return OSA_SOK;
 }
 
@@ -213,9 +312,39 @@ static int setTrackPosRef(cv::Point2f ref)
 	return proc->dynamic_config(CTrackerProc::VP_CFG_TrkPosRef, 0, &ref, sizeof(ref));
 }
 
-static int setOSDColor(int value)
+static int setOSDColor(int value, int thickness)
 {
+	int Y,U,V,R,G,B;
+	Y = value & 0xff; U = (value>>8) & 0xff; V = (value>>16) & 0xff;
+	R = Y+((360*(V-128))>>8);
+	G = Y-((88*(U-128)+184*(V-128))>>8);
+	B = Y+((455*(U-128))>>8);
+
 	colorYUVFlag = value;
+
+	if(general->m_dc[0].channels() == 4)
+	{
+		general->m_color = cvScalar(R,G,B,255);
+	}
+	general->m_thickness = thickness;
+	if(render != NULL)
+		render->m_osdColor = cvScalar(R,G,B,255);
+}
+
+static int setOSDColor(cv::Scalar rgba, int thickness)
+{
+	int Y,U,V,R,G,B;
+	R = rgba.val[0];G = rgba.val[1];B = rgba.val[2];
+	Y = (77*R+150*G+29*B)>>8;
+	U = ((-44*R-87*G+131*B)>>8)+128;
+	V = ((131*R-110*G-21*B)>>8)+128;
+	colorYUVFlag = (Y&0xff)|((U&0xff)<<8)|((V&0xff)<<16);
+	if(general->m_dc[0].channels() == 4){
+		general->m_color = rgba;
+	}
+	general->m_thickness = thickness;
+	if(render != NULL)
+		render->m_osdColor = rgba;
 }
 
 
@@ -224,11 +353,109 @@ static int setOSDColor(int value)
  *
  */
 
+class InputQueue
+{
+public:
+	InputQueue(){};
+	virtual ~InputQueue(){destroy();};
+	int create(int nChannel, int nBuffer = 2)
+	{
+		int ret = OSA_SOK;
+		OSA_assert(nChannel > 0);
+		OSA_assert(queue.size() == 0);
+		for(int chId=0; chId<nChannel; chId++){
+			OSA_BufHndl* hndl = new OSA_BufHndl;
+			OSA_assert(hndl != NULL);
+			ret = image_queue_create(hndl, nBuffer, 0, memtype_null);
+			OSA_assert(ret == OSA_SOK);
+			for(int i=0; i<hndl->numBuf; i++)
+			{
+				OSA_BufInfo* bufInfo = &hndl->bufInfo[i];
+				struct v4l2_buffer *vbuf = new struct v4l2_buffer;
+				OSA_assert(vbuf != NULL);
+				memset(vbuf, 0, sizeof(vbuf));
+				bufInfo->resource = vbuf;
+			}
+			queue.push_back(hndl);
+		}
+		return ret;
+	}
+	int destroy()
+	{
+		for(int chId=0; chId<queue.size(); chId++){
+			OSA_BufHndl* hndl = queue[chId];
+			OSA_assert(hndl != NULL);
+			for(int i=0; i<hndl->numBuf; i++){
+				struct v4l2_buffer *vbuf = (struct v4l2_buffer *)hndl->bufInfo[i].resource;
+				if(vbuf != NULL)
+					delete vbuf;
+				hndl->bufInfo[i].resource = NULL;
+			}
+			image_queue_delete(hndl);
+			delete hndl;
+			queue[chId] = NULL;
+		}
+		queue.clear();
+		return OSA_SOK;
+	}
+	int input(int chId,unsigned char *data, struct v4l2_buffer *vbuf, cv::Size vSize, int format, int channels)
+	{
+		int ret = OSA_SOK;
+		if(chId>=queue.size()) return OSA_EFAIL;
+		OSA_assert(data != NULL);
+		OSA_assert(vbuf != NULL);
+
+		OSA_BufHndl* hndl = queue[chId];
+		OSA_assert(hndl != NULL);
+		OSA_BufInfo* bufInfo = image_queue_getEmpty(hndl);
+		if(bufInfo != NULL){
+			memcpy(bufInfo->resource, vbuf, sizeof(struct v4l2_buffer));
+			bufInfo->chId = chId;
+			bufInfo->width = vSize.width;
+			bufInfo->height = vSize.height;
+			bufInfo->format = format;
+			bufInfo->channels = channels;
+			//OSA_assert(bufInfo->channels == 2);
+			bufInfo->flags = (int)vbuf->flags;
+			bufInfo->timestampCap = (uint64)vbuf->timestamp.tv_sec*1000000000ul
+					+ (uint64)vbuf->timestamp.tv_usec*1000ul;
+			bufInfo->timestamp = (uint64_t)getTickCount();
+			bufInfo->virtAddr = data;
+			image_queue_putFull(hndl, bufInfo);
+		}else{
+			if(chId != 1)
+			OSA_printf("InputQueue %s %d: ch%d over flow", __func__, __LINE__, chId);
+		}
+
+		return ret;
+	}
+public:
+	OSA_BufInfo* getFullQueue(int chId){
+		if(chId>=queue.size())
+			return NULL;
+		return image_queue_getFull(queue[chId]);
+	}
+	int getFullQueueCount(int chId){
+		if(chId>=queue.size())
+			return -1;
+		return image_queue_fullCount(queue[chId]);
+	}
+	int putEmptyQueue(OSA_BufInfo* info){
+		OSA_assert(info->chId < queue.size());
+		return image_queue_putEmpty(queue[info->chId], info);
+	}
+protected:
+	std::vector<OSA_BufHndl*> queue;
+};
+
+static InputQueue *inputQ = NULL;
 static OSA_BufHndl *imgQRender[CORE_CHN_MAX] = {NULL,};
 static OSA_BufHndl *imgQEnc[CORE_CHN_MAX] = {NULL,};
 static OSA_SemHndl *imgQEncSem[CORE_CHN_MAX] = {NULL,};
 static unsigned char *memsI420[CORE_CHN_MAX] = {NULL,};
 static cv::Mat imgOsd[CORE_CHN_MAX];
+static OSA_MutexHndl *cumutex = NULL;
+static void renderCall(void);
 
 static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 {
@@ -248,13 +475,16 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 	if(initParam->encoderParamTab[2]!=NULL)
 		userEncParamTab[2] = initParam->encoderParamTab[2];
 
-	cuConvertInit(channels);
+	cumutex = new OSA_MutexHndl;
+	OSA_mutexCreate(cumutex);
+	cuConvertInit(channels, cumutex);
 
 	for(chId=0; chId<channels; chId++){
 		CORE1001_CHN_INIT_PARAM *chInf = &initParam->chnInfo[chId];
 		int width = chInf->imgSize.width;
 		int height = chInf->imgSize.height;
 		channelsImgSize[chId] = chInf->imgSize;
+		channelsFormat[chId] = chInf->format;
 		ret = cudaHostAlloc((void**)&memsI420[chId], width*height*3/2, cudaHostAllocDefault);
 		ret = cudaHostAlloc((void**)&mem, width*height, cudaHostAllocDefault);
 		imgOsd[chId] = Mat(height, width, CV_8UC1, mem);
@@ -287,12 +517,15 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 			strcpy(enctranInit.destIpaddr, initParam->encStreamIpaddr);
 		}
 
-		enctran.create();
-		enctran.init(&enctranInit);
-		enctran.run();
+		enctran = new CEncTrans;
+		OSA_assert(enctran != NULL);
+
+		enctran->create();
+		enctran->init(&enctranInit);
+		enctran->run();
 		for(chId=0; chId<channels; chId++){
-			imgQEnc[chId] = enctran.m_bufQue[chId];
-			imgQEncSem[chId] = enctran.m_bufSem[chId];
+			imgQEnc[chId] = enctran->m_bufQue[chId];
+			imgQEncSem[chId] = enctran->m_bufSem[chId];
 		}
 	}
 
@@ -302,37 +535,55 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		memset(&dsInit, 0, sizeof(dsInit));
 		dsInit.bFullScreen = true;
 		dsInit.nChannels = channels;
-		dsInit.memType = memtype_cudev;//memtype_glpbo;//memtype_cudev;
+		dsInit.memType = memtype_glpbo;//memtype_glpbo;//memtype_cuhost;//memtype_cudev;
 		dsInit.nQueueSize = 2;
 		dsInit.disFPS = initParam->renderFPS;
+		dsInit.renderfunc = renderCall;
+		dsInit.winWidth = initParam->renderSize.width;
+		dsInit.winHeight = initParam->renderSize.height;
 		for(chId=0; chId<channels; chId++){
-			int width = channelsImgSize[chId].width;
-			int height = channelsImgSize[chId].height;
-			dsInit.channelsSize[chId].w = width;
-			dsInit.channelsSize[chId].h = height;
-			dsInit.channelsSize[chId].c = 3;
+			dsInit.channelsSize[chId].w = channelsImgSize[chId].width;
+			dsInit.channelsSize[chId].h = channelsImgSize[chId].height;
+			if(!bEncoder && channelsFormat[chId] == V4L2_PIX_FMT_GREY)
+				dsInit.channelsSize[chId].c = 1;
+			else
+				dsInit.channelsSize[chId].c = 3;
 		}
 		render = CRender::createObject();
+		render->m_cumutex = cumutex;
 		render->create();
 		render->init(&dsInit);
 		render->run();
 		for(chId=0; chId<channels; chId++)
 			imgQRender[chId] = &render->m_bufQue[chId];
+
+		inputQ = new InputQueue;
+		inputQ->create(channels);
 	}
 
-	mmtd = new CMMTDProcess();
-	mmtd->m_bHide = bHideOSD;
+	blob = new CBlobDetectProcess();
+	bkgd = new CBkgdDetectProcess(blob);
+	motion = new CMotionDetectProcess(bkgd);
+	mmtd = new CMMTDProcess(motion);
 	general = new CGeneralProc(notify,mmtd);
+
+	blob->m_bHide = bHideOSD;
+	motion->m_bHide = bHideOSD;
+	mmtd->m_bHide = bHideOSD;
+	general->m_bHide = bHideOSD;
+
 	for(chId=0; chId<channels; chId++){
 		general->m_dc[chId] = imgOsd[chId];
 		if(!bEncoder && bRender){
 			general->m_dc[chId] = render->m_imgOsd[0];
-			general->m_color = cvScalarAll(255);
-			render->m_bOsd = true;
 		}
 		general->m_imgSize[chId] = channelsImgSize[chId];
 	}
-	general->m_bHide = bHideOSD;
+	if(!bEncoder && bRender){
+		general->m_color = cvScalarAll(255);
+		render->m_bOsd = !bHideOSD;
+	}
+
 	proc = general;
 	general->creat();
 	general->init();
@@ -345,20 +596,33 @@ static int uninit()
 {
 	general->stop();
 	general->destroy();
-	enctran.stop();
-	enctran.destroy();
+	enctran->stop();
+	enctran->destroy();
 	if(render != NULL){
 		render->stop();
 		render->destroy();
 		CRender::destroyObject(render);
 	}
+	delete enctran;
 	delete general;
 	delete mmtd;
+	delete motion;
+	delete bkgd;
+	delete blob;
 	for(int chId=0; chId<nValidChannels; chId++){
 		cudaFreeHost(imgOsd[chId].data);
 		cudaFreeHost(memsI420[chId]);
 	}
 	cuConvertUinit();
+	if(cumutex != NULL){
+		OSA_mutexUnlock(cumutex);
+		OSA_mutexLock(cumutex);
+		OSA_mutexDelete(cumutex);
+		delete cumutex;
+		cumutex = NULL;
+	}
+	if(inputQ != NULL)
+		delete inputQ;
 }
 #define ZeroCpy	(0)
 static void encTranFrame(int chId, Mat img, struct v4l2_buffer bufInfo, bool bEnc)
@@ -367,7 +631,7 @@ static void encTranFrame(int chId, Mat img, struct v4l2_buffer bufInfo, bool bEn
 	OSA_BufInfo* info = NULL;
 	unsigned char *mem = NULL;
 
-	enctran.scheduler(chId);
+	enctran->scheduler(chId);
 
 	if(bEnc){
 		if(ZeroCpy){
@@ -400,7 +664,7 @@ static void encTranFrame(int chId, Mat img, struct v4l2_buffer bufInfo, bool bEn
 
 	if(bEnc){
 		if(!ZeroCpy)
-			enctran.pushData(i420, chId, V4L2_PIX_FMT_YUV420M);
+			enctran->pushData(i420, chId, V4L2_PIX_FMT_YUV420M);
 		if(info != NULL){
 			info->channels = i420.channels();
 			info->width = i420.cols;
@@ -430,12 +694,17 @@ static void renderFrameAfterEnc(int chId, Mat img, struct v4l2_buffer bufInfo)
 				+ (uint64)bufInfo.timestamp.tv_usec*1000ul;
 		info->timestamp = (uint64_t)getTickCount();
 		image_queue_putFull(imgQRender[chId], info);
+	}else{
+		//OSA_printf("%s %d: overflow!", __func__, __LINE__);
+		//render->m_timerRun = false;
 	}
 }
 
 static void renderFrame(int chId, Mat img, struct v4l2_buffer bufInfo, int format)
 {
-	if(chId == curChannelFlag && imgQRender[chId] != NULL)
+	bool bRender = (chId == curChannelFlag || chId == curSubChannelIdFlag || bindBlendFlag[chId] != 0);
+
+	if(bRender && imgQRender[chId] != NULL)
 	{
 		Mat frame;
 		OSA_BufInfo* info = image_queue_getEmpty(imgQRender[chId]);
@@ -455,8 +724,8 @@ static void renderFrame(int chId, Mat img, struct v4l2_buffer bufInfo, int forma
 				if(enableEnhFlag[chId])
 					cuConvertEnh_gray(chId, img, frame, CUT_FLAG_devAlloc);
 				else
-					cudaMemcpy(info->physAddr, img.data, frame.rows*frame.cols*frame.channels(), cudaMemcpyHostToDevice);
-				info->format = V4L2_PIX_FMT_GREY;
+					cudaMemcpy(info->physAddr, img.data, frame.rows*frame.cols*frame.channels(), cudaMemcpyHostToHost);
+				info->format = format;//V4L2_PIX_FMT_GREY;
 			}
 			info->chId = chId;
 			info->channels = frame.channels();
@@ -466,6 +735,11 @@ static void renderFrame(int chId, Mat img, struct v4l2_buffer bufInfo, int forma
 					+ (uint64)bufInfo.timestamp.tv_usec*1000ul;
 			info->timestamp = (uint64_t)getTickCount();
 			image_queue_putFull(imgQRender[chId], info);
+		}
+		else{
+			OSA_printf("%s %d: overflow!", __func__, __LINE__);
+			image_queue_switchEmpty(imgQRender[chId]);
+			render->m_timerRun = false;
 		}
 	}
 }
@@ -493,8 +767,21 @@ static void processFrame(int cap_chid,unsigned char *src, struct v4l2_buffer cap
 		OSA_assert(0);
 	}
 
-	proc->process(cap_chid, curFovIdFlag[cap_chid], ezoomxFlag[cap_chid], img);
-	//OSA_printf("%s ch%d %d ... ", __func__, cap_chid, OSA_getCurTimeInMsec());
+	if(curChannelFlag == cap_chid || curSubChannelIdFlag == cap_chid || bindBlendFlag[cap_chid] != 0)
+		proc->process(cap_chid, curFovIdFlag[cap_chid], ezoomxFlag[cap_chid], img);
+
+	if(bindBlendFlag[cap_chid] != 0 && render != NULL && bkgd != NULL){
+		DS_BlendPrm prm;
+		prm.fAlpha = bkgd->m_alpha;
+		prm.thr0Min = bkgd->m_thr0Min;
+		prm.thr0Max = bkgd->m_thr0Max;
+		prm.thr1Min = bkgd->m_thr1Min;
+		prm.thr1Max = bkgd->m_thr1Max;
+		for(int chId=0; chId<DS_CHAN_MAX; chId++){
+			if((bindBlendFlag[cap_chid] & (1<<chId))!=0)
+				render->dynamic_config(CRender::DS_CFG_BlendPrm, chId*DS_CHAN_MAX+cap_chid, &prm);
+		}
+	}
 
 	if(imgQEnc[cap_chid] != NULL)
 	{
@@ -504,6 +791,18 @@ static void processFrame(int cap_chid,unsigned char *src, struct v4l2_buffer cap
 	}
 	else if(imgQRender[cap_chid] != NULL)
 	{
+		if(!isEqual(ezoomxFlag[cap_chid]*1.0, scaleFlag[cap_chid])){
+			scaleFlag[cap_chid] = ezoomxFlag[cap_chid]*1.0;
+			GLfloat fscale = scaleFlag[cap_chid];
+			GLfloat mat4[16] ={
+				fscale, 0.0f, 0.0f, 0.0f,
+				0.0f, fscale, 0.0f, 0.0f,
+				0.0f, 0.0f, 1.0f, 0.0f,
+				0.0f, 0.0f, 0.0f, 1.0f
+			};
+			render->dynamic_config(CRender::DS_CFG_VideoTransMat, cap_chid, mat4);
+		}
+		render->m_bOsd = enableOSDFlag;
 		renderFrame(cap_chid, img, capInfo, format);
 	}
 
@@ -513,13 +812,73 @@ static void processFrame(int cap_chid,unsigned char *src, struct v4l2_buffer cap
 	//		cap_chid, ns0.tv_sec, ns0.tv_nsec/1000000, info.flags);
 }
 
+static void videoInput(int cap_chid,unsigned char *src, struct v4l2_buffer capInfo, int format)
+{
+	if(capInfo.flags & V4L2_BUF_FLAG_ERROR)
+		return;
+	if(inputQ != NULL){
+		inputQ->input(cap_chid, src, &capInfo, channelsImgSize[cap_chid], format, (format == V4L2_PIX_FMT_GREY) ? 1 : 2);
+	}else{
+		processFrame(cap_chid,src, capInfo, format);
+	}
+}
+
+static void renderCall(void)
+{
+	if(inputQ == NULL)
+		return ;
+#if 1
+	for(int chId = 0; chId < nValidChannels; chId++){
+		OSA_BufInfo* info = NULL;
+		info = inputQ->getFullQueue(chId);
+		if(info == NULL)
+			continue;
+		OSA_assert(info->chId == chId);
+		processFrame(chId, (unsigned char*)info->virtAddr, *(struct v4l2_buffer*)info->resource, info->format);
+		inputQ->putEmptyQueue(info);
+	}
+#endif
+#if 0
+	for(int chId = 0; chId < nValidChannels; chId++){
+		OSA_BufInfo* info = NULL;
+		int nFull = inputQ->getFullQueueCount(chId);
+		for(int i=0; i<nFull-1; i++){
+			info = inputQ->getFullQueue(chId);
+			inputQ->putEmptyQueue(info);
+		}
+		info = inputQ->getFullQueue(chId);
+		if(info == NULL)
+			continue;
+		OSA_assert(info->chId == chId);
+		processFrame(chId, (unsigned char*)info->virtAddr, *(struct v4l2_buffer*)info->resource, info->format);
+		inputQ->putEmptyQueue(info);
+	}
+#endif
+#if 0
+	for(int chId = 0; chId < nValidChannels; chId++){
+		OSA_BufInfo* info = NULL;
+		int nFull = inputQ->getFullQueueCount(chId);
+		for(int i=0; i<nFull; i++){
+			info = inputQ->getFullQueue(chId);
+			OSA_assert(info->chId == chId);
+			processFrame(chId, (unsigned char*)info->virtAddr, *(struct v4l2_buffer*)info->resource, info->format);
+			inputQ->putEmptyQueue(info);
+		}
+	}
+#endif
+}
+
 };//namespace cr_local
 
 class Core_1001 : public ICore_1001
 {
-	Core_1001():m_notifySem(NULL),m_bRun(false){memset(&m_stats, 0, sizeof(m_stats));};
+	Core_1001():m_notifySem(NULL),m_bRun(false){
+		strcpy(m_version, CORE_1001_VERSION_);
+		memset(&m_stats, 0, sizeof(m_stats));
+	};
 	virtual ~Core_1001(){uninit();};
 	friend ICore* ICore::Qury(int coreID);
+	char m_version[16];
 	OSA_SemHndl m_updateSem;
 	OSA_SemHndl *m_notifySem;
 	bool m_bRun;
@@ -541,6 +900,9 @@ public:
 	static unsigned int ID;
 	virtual int init(void *pParam, int paramSize)
 	{
+		printf("\r\n crCore(ID:%08X) v%s--------------Build date: %s %s \r\n",
+				ID, m_version, __DATE__, __TIME__);
+
 		OSA_assert(sizeof(CORE1001_INIT_PARAM) == paramSize);
 		CORE1001_INIT_PARAM *initParam = (CORE1001_INIT_PARAM*)pParam;
 		m_notifySem = initParam->notify;
@@ -565,18 +927,21 @@ public:
 	}
 	virtual void processFrame(int chId, unsigned char *data, struct v4l2_buffer capInfo, int format)
 	{
-		cr_local::processFrame(chId, data, capInfo, format);
+		cr_local::videoInput(chId, data, capInfo, format);
 	}
 
 	virtual int setMainChId(int chId, int fovId, int ndrop, cv::Size acqSize)
 	{
 		UTC_SIZE sz;
 		sz.width = acqSize.width; sz.height = acqSize.height;
-		OSA_printf("%s %d: ...", __func__, __LINE__);
 		int ret = cr_local::setMainChId(chId, fovId, ndrop, sz);
-		OSA_printf("%s %d: ...", __func__, __LINE__);
 		update();
-		OSA_printf("%s %d: ... leave\n", __func__, __LINE__);
+		return ret;
+	}
+	virtual int setSubChId(int chId)
+	{
+		int ret = cr_local::setSubChId(chId);
+		update();
 		return ret;
 	}
 	virtual int enableTrack(bool enable, cv::Size winSize, bool bFixSize)
@@ -602,6 +967,12 @@ public:
 		update();
 		return ret;
 	}
+	virtual int enableMotionDetect(bool enable)
+	{
+		int ret = cr_local::enableMotionDetect(enable);
+		update();
+		return ret;
+	}
 	virtual int enableTrackByMMTD(int index, cv::Size *winSize, bool bFixSize)
 	{
 		int ret = cr_local::enableTrackByMMTD(index, winSize, bFixSize);
@@ -611,6 +982,30 @@ public:
 	virtual int enableEnh(bool enable)
 	{
 		int ret = cr_local::enableEnh(enable);
+		update();
+		return ret;
+	}
+	virtual int enableEnh(int chId, bool enable)
+	{
+		int ret = cr_local::enableEnh(chId, enable);
+		update();
+		return ret;
+	}
+	virtual int enableBlob(bool enable)
+	{
+		int ret = cr_local::enableBlob(enable);
+		update();
+		return ret;
+	}
+	virtual int bindBlend(int blendchId, cv::Matx44f matric)
+	{
+		int ret = cr_local::bindBlend(blendchId, matric);
+		update();
+		return ret;
+	}
+	virtual int bindBlend(int chId, int blendchId, cv::Matx44f matric)
+	{
+		int ret = cr_local::bindBlend(chId, blendchId, matric);
 		update();
 		return ret;
 	}
@@ -654,9 +1049,21 @@ public:
 		update();
 		return ret;
 	}
-	virtual int setOSDColor(int yuv)
+	virtual int setEZoomx(int chId, int value)
 	{
-		int ret = cr_local::setOSDColor(yuv);
+		int ret = cr_local::setEZoomx(chId, value);
+		update();
+		return ret;
+	}
+	virtual int setOSDColor(int yuv, int thickness)
+	{
+		int ret = cr_local::setOSDColor(yuv, thickness);
+		update();
+		return ret;
+	}
+	virtual int setOSD(cv::Scalar color, int thickness)
+	{
+		int ret = cr_local::setOSDColor(color, thickness);
 		update();
 		return ret;
 	}
@@ -676,16 +1083,38 @@ void Core_1001::update()
 	m_stats.acqWinSize.width = cr_local::general->m_sizeAcqWin.width;
 	m_stats.enableTrack = cr_local::enableTrackFlag;
 	m_stats.enableMMTD = cr_local::enableMMTDFlag;
+	m_stats.enableMotionDetect = cr_local::enableMotionDetectFlag;
 	m_stats.iTrackorStat = cr_local::general->m_iTrackStat;
 	UTC_RECT_float curRC = cr_local::general->m_rcTrk;
 	m_stats.trackPos.x = curRC.x+curRC.width/2;
 	m_stats.trackPos.y = curRC.y+curRC.height/2;
 	m_stats.trackWinSize.width = curRC.width;
 	m_stats.trackWinSize.height = curRC.height;
-	for(int i=0; i<CORE_TGT_NUM_MAX; i++){
-		m_stats.tgts[i].valid = cr_local::mmtd->m_target[i].valid;
-		m_stats.tgts[i].Box = cr_local::mmtd->m_target[i].Box;
+	if(cr_local::mmtd->m_bEnable){
+		int cnt = min(MAX_TGT_NUM, CORE_TGT_NUM_MAX);
+		for(int i=0; i<cnt; i++)
+		{
+			m_stats.tgts[i].valid = cr_local::mmtd->m_target[i].valid;
+			m_stats.tgts[i].Box = cr_local::mmtd->m_target[i].Box;
+			m_stats.tgts[i].pos = tRectCenter(m_stats.tgts[i].Box);
+		}
+	}else if(cr_local::motion->m_bEnable){
+		int chId = cr_local::motion->m_curChId;
+		int cnt = cr_local::motion->m_targets[chId].size();
+		int i;
+		cnt = min(cnt, CORE_TGT_NUM_MAX);
+		for(i=0; i<cnt; i++)
+		{
+			m_stats.tgts[i].valid = true;
+			m_stats.tgts[i].Box = cr_local::motion->m_targets[chId][i].targetRect;
+			m_stats.tgts[i].pos = tRectCenter(m_stats.tgts[i].Box);
+		}
+		for(;i<CORE_TGT_NUM_MAX; i++)
+			m_stats.tgts[i].valid = false;
 	}
+	m_stats.blob.valid = cr_local::blob->m_bValid;
+	m_stats.blob.pos = cr_local::blob->m_pos;
+	m_stats.blob.Box = cr_local::blob->m_rc;
 
 	for(int chId = 0; chId < cr_local::nValidChannels; chId++){
 		CORE1001_CHN_STATS *chn = &m_stats.chn[chId];
@@ -695,7 +1124,7 @@ void Core_1001::update()
 		chn->axis.y = cr_local::general->m_AxisCalibY[chId][chn->fovId];
 		chn->enableEnh = cr_local::enableEnhFlag[chId];
 		chn->iEZoomx = cr_local::ezoomxFlag[chId];
-		chn->enableEncoder = cr_local::enableEncoderFlag[chId];//enctran.m_enable[chId];
+		chn->enableEncoder = cr_local::enableEncoderFlag[chId];//enctran->m_enable[chId];
 	}
 }
 

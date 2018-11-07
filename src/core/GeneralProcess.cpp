@@ -95,48 +95,65 @@ bool CGeneralProc::OnPreProcess(int chId, Mat &frame)
 	return true;
 }
 
-int CGeneralProc::OnOSD(int chId, Mat dc, CvScalar color)
+__inline__ UTC_RECT_float tRectScale(UTC_RECT_float rc, cv::Size orgSize, cv::Size scaleSize)
 {
-	int ret = CProcessBase::OnOSD(chId, dc, color);
+	UTC_RECT_float ret;
+	cv::Point2f fscale(scaleSize.width/orgSize.width, scaleSize.height/orgSize.height);
+	ret.x = scaleSize.width/2.0f - (orgSize.width/2.0f - rc.x)*fscale.x;
+	ret.y = scaleSize.height/2.0f - (orgSize.height/2.0f - rc.y)*fscale.y;
+	ret.width = rc.width*fscale.x;
+	ret.height = rc.height*fscale.y;
+	return ret;
+}
+
+int CGeneralProc::OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color, int thickness)
+{
+	int ret = CProcessBase::OnOSD(chId, fovId, ezoomx, dc, color, thickness);
+	float scalex = dc.cols/1920.0;
+	float scaley = dc.rows/1080.0;
+
+	if(units[chId][U_WIN].bHasDraw)
+		osd_cvdraw_trk(dc, units[chId][U_WIN].rc, units[chId][U_WIN].iStyle, units[chId][U_WIN].thickness, false);
+	units[chId][U_WIN].bHasDraw = false;
+	if(units[chId][U_AXIS].bHasDraw)
+		osd_cvdraw_cross(dc, units[chId][U_AXIS].pos.x, units[chId][U_AXIS].pos.y, scalex, scaley, units[chId][U_AXIS].thickness, false);
+	units[chId][U_AXIS].bHasDraw = false;
+
 	int curChId = m_curChId;
 	bool curTrack = m_bTrack;
 	int curStat = m_iTrackStat;
-	float scalex = dc.cols/1920.0;
-	float scaley = dc.rows/1080.0;
-	Point2f tmpPoint = tPosScale(m_axis, m_imgSize[chId], (float)m_curEZoomx[chId]);
-	cv::Point axis((int)tmpPoint.x, (int)tmpPoint.y);
-	//cv::Point axis((int)(m_axis.x+0.5), (int)(m_axis.y+0.5));
-	UTC_RECT_float curRC = m_rcTrk;//tRectScale(m_rcTrack, m_imgSize[chId], (float)m_curEZoomx[chId]);
-
-	if(units[chId][U_WIN].bHasDraw)
-		osd_cvdraw_trk(dc, units[chId][U_WIN].rc, 0, false);
-	units[chId][U_WIN].bHasDraw = false;
-	if(units[chId][U_AXIS].bHasDraw)
-		osd_cvdraw_cross(dc, units[chId][U_AXIS].pos.x, units[chId][U_AXIS].pos.y, scalex, scaley, false);
-	units[chId][U_AXIS].bHasDraw = false;
+	Point2f curAxis;
+	curAxis.x = m_AxisCalibX[chId][fovId];
+	curAxis.y = m_AxisCalibY[chId][fovId];
+	Point2f tmpPoint = tPosScale(curAxis, m_imgSize[chId], (float)ezoomx);
+	tmpPoint = tPosScale(tmpPoint, m_imgSize[chId], cv::Size(dc.cols, dc.rows));
+	cv::Point axis((int)(tmpPoint.x+0.5), (int)(tmpPoint.y+0.5));
+	UTC_RECT_float curRC = tRectScale(m_rcTrk, m_imgSize[chId], cv::Size(dc.cols, dc.rows));//m_rcTrk;//tRectScale(m_rcTrack, m_imgSize[chId], (float)m_curEZoomx[chId]);
 
 	units[chId][U_AXIS].bNeedDraw = (curChId == chId && !m_bHide);
 	if(units[chId][U_AXIS].bNeedDraw){
 		units[chId][U_AXIS].pos = axis;
-		osd_cvdraw_cross(dc, units[chId][U_AXIS].pos.x, units[chId][U_AXIS].pos.y, scalex, scaley, true);
+		units[chId][U_AXIS].thickness = thickness;
+		osd_cvdraw_cross(dc, units[chId][U_AXIS].pos.x, units[chId][U_AXIS].pos.y, scalex, scaley, units[chId][U_AXIS].thickness, true);
 		units[chId][U_AXIS].bHasDraw = true;
 	}
-	units[chId][U_WIN].bNeedDraw = (curChId == chId && curStat != 0 && !m_bHide);
+	units[chId][U_WIN].bNeedDraw = (curChId == chId && curTrack && !m_bHide);
 	if(units[chId][U_WIN].bNeedDraw){
 		units[chId][U_WIN].rc = curRC;
 		units[chId][U_WIN].iStyle = curStat;
-		osd_cvdraw_trk(dc, units[chId][U_WIN].rc, units[chId][U_WIN].iStyle, true);
+		units[chId][U_WIN].thickness = thickness;
+		osd_cvdraw_trk(dc, units[chId][U_WIN].rc, units[chId][U_WIN].iStyle, units[chId][U_WIN].thickness, true);
 		units[chId][U_WIN].bHasDraw = true;
 	}
 	return ret;
 }
 
-void CGeneralProc::osd_cvdraw_cross(Mat &dc, int ix, int iy, float scalex, float scaley, bool bShow)
+void CGeneralProc::osd_cvdraw_cross(Mat &dc, int ix, int iy, float scalex, float scaley, int thickness, bool bShow)
 {
 	Point pt1,pt2,center;
 	CvScalar lineColor;
 	UInt32 width=0, height=0, widthGap=0, heightGap=0;
-	int linePixels = 2;
+	int linePixels = thickness;
 
 	if(ix == 0 && iy == 0)
 		return ;
@@ -230,12 +247,12 @@ void CGeneralProc::osd_cvdraw_cross(Mat &dc, int ix, int iy, float scalex, float
 	}
 }
 
-void CGeneralProc::osd_cvdraw_trk(Mat &dc, UTC_RECT_float rcTrack, int iStat, bool bShow)
+void CGeneralProc::osd_cvdraw_trk(Mat &dc, UTC_RECT_float rcTrack, int iStat, int thickness, bool bShow)
 {
 	UTC_RECT_float rcResult = rcTrack;
     CvScalar lineColor;
 	Point pt1,pt2;
-	int linePixels = 2;
+	int linePixels = thickness;
 
     if(rcTrack.width == 0 || rcTrack.height == 0)
         return ;
@@ -254,7 +271,7 @@ void CGeneralProc::osd_cvdraw_trk(Mat &dc, UTC_RECT_float rcTrack, int iStat, bo
 		return ;
 	}
 
-	if(iStat == 1)	// trk
+	if(iStat == 1 || iStat == 0)	// trk
 		rectangle( dc,
 			Point( rcResult.x, rcResult.y ),
 			Point( rcResult.x+rcResult.width, rcResult.y+rcResult.height),

@@ -26,12 +26,19 @@ using namespace cv;
 #define MAX_NFOV_PER_CHAN	16
 #define MAX_NFOV	(MAX_CHAN*MAX_NFOV_PER_CHAN)
 
-#define MAX_MMTD_TARGET_COUNT		(5)
+#define MAX_TARGET_COUNT		(32)
 #define VP_CFG_BASE			(0x0000)
-#define VP_CFG_TRK_BASE		(0x0000 + VP_CFG_BASE)
-#define VP_CFG_MMTD_BASE	(0x1000 + VP_CFG_BASE)
+#define VP_CFG_TRK_BASE		(0x1000 + VP_CFG_BASE)
+#define VP_CFG_MMTD_BASE	(0x2000 + VP_CFG_BASE)
+#define VP_CFG_MONTION_BASE	(0x3000 + VP_CFG_BASE)
+#define VP_CFG_BKGD_BASE	(0x4000 + VP_CFG_BASE)
+#define VP_CFG_BLOB_BASE	(0x5000 + VP_CFG_BASE)
 
 typedef struct _OSD_unit_info{
+	int orgValue;
+	cv::Point orgPos;
+	cv::Rect  orgRC;
+	cv::RotatedRect orgRRC;
 	bool bHasDraw;
 	bool bNeedDraw;
 	int iStyle;
@@ -39,8 +46,8 @@ typedef struct _OSD_unit_info{
 	int lineType;
 	cv::Point txtPos;
 	char txt[128];
-	cv::Point rcPos;
-	cv::Rect rc;
+	cv::Rect  drawRC;
+	cv::RotatedRect drawRRC;
 }OSDU_Info;
 
 class IProcess
@@ -48,7 +55,7 @@ class IProcess
 public:
 	virtual int process(int chId, int fovId, int ezoomx, Mat frame) = 0;
 	virtual int dynamic_config(int type, int iPrm, void* pPrm = NULL, int prmSize = 0) = 0;
-	virtual int OnOSD(int chId, Mat dc, CvScalar color) = 0;
+	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color, int thickness) = 0;
 };
 
 class CProcessBase : public IProcess
@@ -71,6 +78,10 @@ public:
 			return m_proc->process(chId, fovId, ezoomx, frame);
 		return 0;
 	};
+	enum{
+		VP_CFG_MainChId = VP_CFG_BASE,
+		VP_CFG_MainFov,
+	};
 	virtual int dynamic_config(int type, int iPrm, void* pPrm = NULL, int prmSize = 0)
 	{
 		//cout<<"CProcessBase dynamic_config"<<endl;
@@ -78,10 +89,10 @@ public:
 			return m_proc->dynamic_config(type, iPrm, pPrm, prmSize);
 		return 0;
 	};
-	virtual int OnOSD(int chId, Mat dc, CvScalar color)
+	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color, int thickness)
 	{
 		if(m_proc != NULL)
-			return m_proc->OnOSD(chId, dc, color);
+			return m_proc->OnOSD(chId, fovId, ezoomx, dc, color, thickness);
 	}
 };
 
@@ -99,12 +110,49 @@ __inline__ cv::Point2f tPosScale(cv::Point2f pos, cv::Size imgSize, float fscale
 	return cv::Point2f(x, y);
 }
 
+__inline__ cv::Point2f tPosScale(cv::Point2f pos, cv::Size orgSize, cv::Size scaleSize)
+{
+	cv::Point2f fscale(scaleSize.width/orgSize.width, scaleSize.height/orgSize.height);
+	float x = scaleSize.width/2.0f - (orgSize.width/2.0f - pos.x)*fscale.x;
+	float y = scaleSize.height/2.0f - (orgSize.height/2.0f - pos.y)*fscale.y;
+	return cv::Point2f(x, y);
+}
+
+__inline__ cv::Point2f tRectCenter(Rect rc)
+{
+	cv::Point2f point(rc.x+rc.width/2.0, rc.y+rc.height/2.0);
+	return point;
+}
+
 __inline__ Rect tRectScale(Rect rc, cv::Size imgSize, float fscale)
 {
 	cv::Point2f point(rc.x, rc.y);
 	cv::Size size((int)(rc.width*fscale+0.5), (int)(rc.height*fscale+0.5));
 	point = tPosScale(point, imgSize, fscale);
 	return Rect((int)point.x+0.5, (int)point.y+0.5, size.width, size.height);
+}
+
+__inline__ Rect tRectScale(Rect rc, cv::Size orgSize, cv::Size toSize)
+{
+	Rect ret;
+	cv::Point2f fscale(toSize.width/orgSize.width, toSize.height/orgSize.height);
+	ret.x = (int)(toSize.width/2.0f - (orgSize.width/2.0f - rc.x)*fscale.x + 0.5f);
+	ret.y = (int)(toSize.height/2.0f - (orgSize.height/2.0f - rc.y)*fscale.y+ 0.5f);
+	ret.width = (int)(rc.width*fscale.x+0.5f);
+	ret.height = (int)(rc.height*fscale.y+0.5f);
+	return ret;
+}
+
+__inline__ RotatedRect tRectScale(cv::RotatedRect rc, cv::Size orgSize, cv::Size toSize)
+{
+	cv::RotatedRect ret;
+	cv::Point2f fscale(toSize.width/orgSize.width, toSize.height/orgSize.height);
+	ret = rc;
+	ret.center = cv::Point2f((toSize.width/2.0f - (orgSize.width/2.0f - rc.center.x)*fscale.x),
+			(toSize.height/2.0f - (orgSize.height/2.0f - rc.center.y)*fscale.y));
+	ret.size.width = rc.size.width*fscale.x;
+	ret.size.height = rc.size.height*fscale.y;
+	return ret;
 }
 
 typedef cv::Rect_<float> Rect2f;
@@ -115,6 +163,16 @@ __inline__ Rect2f tRectScale(Rect2f rc, cv::Size imgSize, float fscale)
 	return Rect2f(tPosScale(point, imgSize, fscale), size);
 }
 
+__inline__ Rect2f tRectScale(Rect2f rc, cv::Size orgSize, cv::Size toSize)
+{
+	Rect2f ret;
+	cv::Point2f fscale(toSize.width/orgSize.width, toSize.height/orgSize.height);
+	ret.x = toSize.width/2.0f - (orgSize.width/2.0f - rc.x)*fscale.x;
+	ret.y = toSize.height/2.0f - (orgSize.height/2.0f - rc.y)*fscale.y;
+	ret.width = rc.width*fscale.x;
+	ret.height = rc.height*fscale.y;
+	return ret;
+}
 
 
 #endif /* PROCESSBASE_HPP_ */

@@ -52,11 +52,10 @@ void CTrackerProc::printfInfo(Mat mframe,UTC_RECT_float &result,bool show)
 
 static void extractYUYV2Gray(Mat src, Mat dst)
 {
-	int ImgHeight, ImgWidth,ImgStride;
+	int ImgHeight, ImgWidth;
 
 	ImgWidth = src.cols;
 	ImgHeight = src.rows;
-	ImgStride = ImgWidth*2;
 	uint8_t  *  pDst8_t;
 	uint8_t *  pSrc8_t;
 
@@ -72,7 +71,6 @@ static void extractYUYV2Gray(Mat src, Mat dst)
 int CTrackerProc::process(int chId, int fovId, int ezoomx, Mat frame)
 {
 	static int ppBak = 1;
-	//int fovId = m_curFovId;
 	if(frame.cols<=0 || frame.rows<=0)
 		return 0;
 
@@ -80,11 +78,9 @@ int CTrackerProc::process(int chId, int fovId, int ezoomx, Mat frame)
 	m_imgSize[chId].height = frame.rows;
 
 //	tstart = getTickCount();
-	if(chId == m_curChId)
+	//if(chId == m_curChId)
 	{
 		int pp;
-
-		//OnOSD(chId, m_dc[chId]);
 
 		if(!OnPreProcess(chId, frame)){
 			return 0;
@@ -118,7 +114,9 @@ int CTrackerProc::process(int chId, int fovId, int ezoomx, Mat frame)
 			//OnProcess(chId, frame);
 		}
 	}
-//	OSA_printf("process_frame: chId = %d, time = %f sec \n",chId,  ( (getTickCount() - tstart)/getTickFrequency()) );
+
+	OnOSD(chId, fovId, ezoomx, m_dc[chId], m_color, m_thickness);
+	//	OSA_printf("process_frame: chId = %d, time = %f sec \n",chId,  ( (getTickCount() - tstart)/getTickFrequency()) );
 
 	return 0;
 }
@@ -161,7 +159,7 @@ void CTrackerProc::main_proc_func()
 
 		int iTrackStat = ReAcqTarget();
 		m_curEZoomx[chId] = ezoomx;
-		if(!m_bTrack || chId != m_curChId || fovId != m_curFovId){
+		if(!m_bTrack || chId != m_curChId || fovId != m_curFovId[m_curChId]){
 			OnProcess(chId, frame);
 			continue;
 		}
@@ -227,12 +225,13 @@ int CTrackerProc::MAIN_threadDestroy(void)
 }
 
 CTrackerProc::CTrackerProc(OSA_SemHndl *notifySem, IProcess *proc)
-	:CProcessBase(proc),m_track(NULL),m_curChId(0),m_curFovId(0),m_usrNotifySem(notifySem),
+	:CProcessBase(proc),m_track(NULL),m_curChId(0),m_usrNotifySem(notifySem),
 	 m_bFixSize(false)//, adaptiveThred(180)
 {
 	memset(&mainProcThrObj, 0, sizeof(MAIN_ProcThrObj));
 	memset(&m_rcTrk, 0, sizeof(m_rcTrk));
 	memset(m_mainMem, 0, sizeof(m_mainMem));
+	memset(m_curFovId, 0, sizeof(m_curFovId));
 	m_bTrack = false;
 	m_iTrackStat = 0;
 	m_iTrackLostCnt = 0;
@@ -260,6 +259,7 @@ CTrackerProc::CTrackerProc(OSA_SemHndl *notifySem, IProcess *proc)
 		}
 	}
 	m_color = cvScalar(255);
+	m_thickness = 2;
 }
 
 CTrackerProc::~CTrackerProc()
@@ -302,8 +302,8 @@ int CTrackerProc::init()
 			m_AxisCalibY[i][j] = 1080/2;
 		}
 	}
-	m_axis.x = m_AxisCalibX[m_curChId][m_curFovId];
-	m_axis.y = m_AxisCalibY[m_curChId][m_curFovId];
+	m_axis.x = m_AxisCalibX[m_curChId][m_curFovId[m_curChId]];
+	m_axis.y = m_AxisCalibY[m_curChId][m_curFovId[m_curChId]];
 
 	return 0;
 }
@@ -329,19 +329,21 @@ int CTrackerProc::dynamic_config(int type, int iPrm, void* pPrm, int prmSize)
 int CTrackerProc::dynamic_config_(int type, int iPrm, void* pPrm)
 {
 	int iret = OSA_SOK;
-	int curBak;
+	int bakChId;
 	float fwidth, fheight;
 
 	iret = CProcessBase::dynamic_config(type, iPrm, pPrm);
 
-	if(type<VP_CFG_TRK_BASE || type>VP_CFG_Max)
+	if(type<VP_CFG_BASE || type>VP_CFG_Max)
 		return iret;
 
 	switch(type)
 	{
 	case VP_CFG_MainChId:
-		curBak = m_curChId;
+		bakChId = m_curChId;
 		m_curChId = iPrm;
+		if(m_curChId != bakChId)
+			OnOSD(bakChId, m_curFovId[bakChId], m_curEZoomx[bakChId], m_dc[bakChId], m_color, m_thickness);
 		m_iTrackStat = 0;
 		m_iTrackLostCnt = 0;
 		if(pPrm != NULL){
@@ -349,31 +351,28 @@ int CTrackerProc::dynamic_config_(int type, int iPrm, void* pPrm)
 			m_intervalFrame = mchPrm->iIntervalFrames;
 			m_reTrackStat = 0;
 			if(mchPrm->fovId>=0 && mchPrm->fovId<MAX_NFOV_PER_CHAN)
-				m_curFovId = mchPrm->fovId;
+				m_curFovId[m_curChId] = mchPrm->fovId;
 		}else{
 			m_intervalFrame = 0;
 			m_reTrackStat = 0;
 		}
-		m_axis.x = m_AxisCalibX[m_curChId][m_curFovId];
-		m_axis.y = m_AxisCalibY[m_curChId][m_curFovId];
+		m_axis.x = m_AxisCalibX[m_curChId][m_curFovId[m_curChId]];
+		m_axis.y = m_AxisCalibY[m_curChId][m_curFovId[m_curChId]];
 		//fwidth = (float)m_imgSize[m_curChId].width;
 		//fheight = (float)m_imgSize[m_curChId].height;
 		//m_axis.x = fwidth/2.0f - (fwidth/2.0f - m_axis.x)*(float)m_curEZoomx;
 		//m_axis.y = fheight/2.0f - (fheight/2.0f - m_axis.y)*(float)m_curEZoomx;
 		update_acqRc();
-		if(curBak>=0 && curBak<MAX_CHAN && curBak!=m_curChId){
-			OnOSD(curBak, m_dc[curBak], m_color);
-		}
 		break;
 	case VP_CFG_MainFov:
 		if(iPrm>=0 && iPrm<MAX_NFOV_PER_CHAN){
-			m_curFovId = iPrm;
+			m_curFovId[m_curChId] = iPrm;
 			m_iTrackStat = 0;
 			m_iTrackLostCnt = 0;
 			m_intervalFrame = (pPrm == NULL) ? 1: *(int*)pPrm;
 			m_reTrackStat = 0;
-			m_axis.x = m_AxisCalibX[m_curChId][m_curFovId];
-			m_axis.y = m_AxisCalibY[m_curChId][m_curFovId];
+			m_axis.x = m_AxisCalibX[m_curChId][m_curFovId[m_curChId]];
+			m_axis.y = m_AxisCalibY[m_curChId][m_curFovId[m_curChId]];
 			//fwidth = (float)m_imgSize[m_curChId].width;
 			//fheight = (float)m_imgSize[m_curChId].height;
 			//m_axis.x = fwidth/2.0f - (fwidth/2.0f - m_axis.x)*(float)m_curEZoomx;
@@ -390,17 +389,13 @@ int CTrackerProc::dynamic_config_(int type, int iPrm, void* pPrm)
 		}
 		break;
 	case VP_CFG_SaveAxisToArray:
-		m_AxisCalibX[m_curChId][m_curFovId] = m_axis.x;
-		m_AxisCalibY[m_curChId][m_curFovId] = m_axis.y;
-		//fwidth = (float)m_imgSize[m_curChId].width;
-		//fheight = (float)m_imgSize[m_curChId].height;
-		//m_AxisCalibX[m_curChId][m_curFovId] = fwidth/2.0f - (fwidth/2.0f - m_axis.x)/m_curEZoomx;
-		//m_AxisCalibY[m_curChId][m_curFovId] = fheight/2.0f - (fheight/2.0f - m_axis.y)/m_curEZoomx;
+		m_AxisCalibX[m_curChId][m_curFovId[m_curChId]] = m_axis.x;
+		m_AxisCalibY[m_curChId][m_curFovId[m_curChId]] = m_axis.y;
 		break;
 	case VP_CFG_AcqWinSize:
 		if(pPrm != NULL){
 			memcpy(&m_sizeAcqWin, pPrm, sizeof(m_sizeAcqWin));
-			OSA_printf("%s: m_sizeAcqWin(%d,%d)", __func__, m_sizeAcqWin.width, m_sizeAcqWin.height);
+			//OSA_printf("%s: m_sizeAcqWin(%d,%d)", __func__, m_sizeAcqWin.width, m_sizeAcqWin.height);
 			update_acqRc();
 			m_iTrackStat = 0;
 			m_iTrackLostCnt = 0;
@@ -419,6 +414,7 @@ int CTrackerProc::dynamic_config_(int type, int iPrm, void* pPrm)
 			UTC_RECT_float urTmp;
 			memcpy(&urTmp, pPrm, sizeof(urTmp));
 			m_rcAcq = tRectScale(urTmp, m_imgSize[m_curChId], 1.0/m_curEZoomx[m_curChId]);
+			m_rcTrackSelf = urTmp;
 			OSA_printf(" m_rcAcq update by assign %f %f %f %f\n", m_rcAcq.x, m_rcAcq.y, m_rcAcq.width, m_rcAcq.height);
 		}
 
@@ -492,6 +488,8 @@ void CTrackerProc::update_acqRc()
 	rc.x = m_axis.x - rc.width/2;
 	rc.y = m_axis.y - rc.height/2;
 	m_rcAcq = rc;
+	m_rcTrk = tRectScale(m_rcAcq, m_imgSize[m_curChId], (float)m_curEZoomx[m_curChId]);
+	m_rcTrackSelf = rc;
 	//OSA_printf("%s: curCh%d m_rcAcq(%.1f %.1f %.1f %.1f)",__func__,m_curChId,m_rcAcq.x, m_rcAcq.y, m_rcAcq.width, m_rcAcq.height);
 }
 

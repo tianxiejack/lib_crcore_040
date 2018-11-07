@@ -224,7 +224,7 @@ int CEncTrans::dynamic_config(CEncTrans::CFG type, int iPrm, void* pPrm)
 		//OSA_mutexUnlock(&m_mutex);
 		OSA_assert(ret == OSA_SOK);
 	}
-	if(type == CFG_TransLevel){
+	if(type == CFG_TransLevel && m_bCreateSync422){
 		if(iPrm<0 || iPrm>2)
 			return -1;
 		ret = sync422_ontime_ctrl(ctrl_prm_uartrate, 0, iPrm);

@@ -4,6 +4,9 @@
 #include <cuda_gl_interop.h>
 //#include <cuda_runtime.h>
 #include "cuda_runtime_api.h"
+#include "osa.h"
+
+#if 0
 #include "osa_tsk.h"
 
 typedef struct _share{
@@ -130,6 +133,8 @@ static cudaError_t cudaAlloc_unMap(void *pHost)
 	}
 	return ret;
 }
+#endif
+
 
 #define RESOURCE_CNT		(8)
 #define INVALID_BUFFER    (0xFFFFFFFF)
