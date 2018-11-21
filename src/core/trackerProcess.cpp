@@ -102,20 +102,24 @@ int CTrackerProc::process(int chId, int fovId, int ezoomx, Mat frame)
 			OSA_assert(frame.data != NULL && frame_gray.data != NULL);
 			extractYUYV2Gray(frame, frame_gray);
 			//OSA_printf("%s: %d ", __func__, __LINE__);
+		}
+		else if(channel == 3){
+			cvtColor(frame, frame_gray, COLOR_BGR2GRAY);
 		}else{
 			memcpy(frame_gray.data, frame.data, frame.cols*frame.rows*channel*sizeof(unsigned char));
 		}
 		mainFramegray[pp] = frame_gray;
-		OSA_mutexUnlock(&mainProcThrObj.m_mutex);
 		if(ppBak != pp){
+			//OSA_printf("%s %d: ch%d(%d) fov%d(%d)", __func__, __LINE__, chId, m_curChId, fovId, m_curFovId[m_curChId]);
 			OSA_msgqSendMsg(&mainProcThrObj.hMsgQ, NULL, VP_CFG_NewData, NULL, 0, NULL);
 			ppBak = pp;
 		}else{
 			//OnProcess(chId, frame);
 		}
+		OSA_mutexUnlock(&mainProcThrObj.m_mutex);
 	}
 
-	OnOSD(chId, fovId, ezoomx, m_dc[chId], m_color, m_thickness);
+	//OnOSD(chId, fovId, ezoomx, m_dc[chId], m_vosds[chId]);
 	//	OSA_printf("process_frame: chId = %d, time = %f sec \n",chId,  ( (getTickCount() - tstart)/getTickFrequency()) );
 
 	return 0;
@@ -135,8 +139,10 @@ void CTrackerProc::main_proc_func()
 		ret = OSA_msgqRecvMsgEx(&mainProcThrObj.hMsgQ, &msgRcv, OSA_TIMEOUT_FOREVER);
 		OSA_assert(ret == OSA_SOK);
 
-		if(msgRcv.cmd == VP_CFG_Quit)
+		if(msgRcv.cmd == VP_CFG_Quit){
+			OSA_printf("%s %d: ... break", __func__, __LINE__);
 			break;
+		}
 		if(msgRcv.cmd != VP_CFG_NewData){
 			dynamic_config_(msgRcv.cmd, msgRcv.flags, msgRcv.pPrm);
 			if(msgRcv.pPrm != NULL)
@@ -232,6 +238,7 @@ CTrackerProc::CTrackerProc(OSA_SemHndl *notifySem, IProcess *proc)
 	memset(&m_rcTrk, 0, sizeof(m_rcTrk));
 	memset(m_mainMem, 0, sizeof(m_mainMem));
 	memset(m_curFovId, 0, sizeof(m_curFovId));
+	memset(m_vosds, 0, sizeof(m_vosds));
 	m_bTrack = false;
 	m_iTrackStat = 0;
 	m_iTrackLostCnt = 0;
@@ -258,8 +265,6 @@ CTrackerProc::CTrackerProc(OSA_SemHndl *notifySem, IProcess *proc)
 			m_AxisCalibY[i][j] = m_imgSize[i].height/2;
 		}
 	}
-	m_color = cvScalar(255);
-	m_thickness = 2;
 }
 
 CTrackerProc::~CTrackerProc()
@@ -342,8 +347,8 @@ int CTrackerProc::dynamic_config_(int type, int iPrm, void* pPrm)
 	case VP_CFG_MainChId:
 		bakChId = m_curChId;
 		m_curChId = iPrm;
-		if(m_curChId != bakChId)
-			OnOSD(bakChId, m_curFovId[bakChId], m_curEZoomx[bakChId], m_dc[bakChId], m_color, m_thickness);
+		//if(m_curChId != bakChId)
+		//	OnOSD(bakChId, m_curFovId[bakChId], m_curEZoomx[bakChId], m_dc[bakChId], m_vosds[bakChId]);
 		m_iTrackStat = 0;
 		m_iTrackLostCnt = 0;
 		if(pPrm != NULL){

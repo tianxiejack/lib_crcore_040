@@ -12,10 +12,6 @@ CMMTDProcess::CMMTDProcess(IProcess *proc)
 	for(int chId=0; chId<MAX_CHAN; chId++){
 		m_imgSize[chId].width = 1920;
 		m_imgSize[chId].height = 1080;
-		for(int i=0; i<MAX_TGT_NUM; i++){
-			m_units[chId][i].thickness = 2;
-			m_units[chId][i].lineType = 8;
-		}
 	}
 	m_mmtd = new CMMTD();
 	OSA_assert(m_mmtd != NULL);
@@ -92,6 +88,8 @@ int CMMTDProcess::process(int chId, int fovId, int ezoomx, Mat frame)
 	m_imgSize[chId].width = frame.cols;
 	m_imgSize[chId].height = frame.rows;
 
+	//OSA_printf("%s %d: ch%d(%d) fov%d(%d)", __func__, __LINE__, chId, m_curChId, fovId, m_fovId);
+
 	if(m_curChId != chId)
 		return iRet;
 
@@ -106,6 +104,7 @@ int CMMTDProcess::process(int chId, int fovId, int ezoomx, Mat frame)
 		return iRet;
 	}
 
+	int nValid = 0;
 	if(m_bEnable && m_curChId == chId)
 	{
 		TARGETBOX targets[MAX_TGT_NUM];
@@ -142,7 +141,6 @@ int CMMTDProcess::process(int chId, int fovId, int ezoomx, Mat frame)
 		}
 		OSA_mutexLock(&m_mutexlock);
 		memcpy(&m_target, &targets, sizeof(m_target));
-		//int nValid = 0;
 		for(int i=0; i<m_nCount; i++)
 		{
 			if(m_target[i].valid && !m_bHide){
@@ -150,21 +148,21 @@ int CMMTDProcess::process(int chId, int fovId, int ezoomx, Mat frame)
 				m_units[chId][i].orgPos = Point(m_target[i].Box.x + m_target[i].Box.width/2, m_target[i].Box.y + m_target[i].Box.height/2);
 				m_units[chId][i].orgRC = m_target[i].Box;
 				m_units[chId][i].orgValue = i;
-				//nValid ++ ;
+				nValid ++ ;
 			}else{
 				m_units[chId][i].bNeedDraw = false;
 			}
 		}
-		//OSA_printf("%s %d: nvalid = %d", __func__, __LINE__, nValid);
 		OSA_mutexUnlock(&m_mutexlock);
 	}
+	//OSA_printf("%s %d: ch%d(%d) nvalid = %d", __func__, __LINE__, chId, m_bEnable, nValid);
 
 	return iRet;
 }
 
-int CMMTDProcess::OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color, int thickness)
+int CMMTDProcess::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd)
 {
-	int ret = CProcessBase::OnOSD(chId, fovId, ezoomx, dc, color, thickness);
+	int ret = CProcessBase::OnOSD(chId, fovId, ezoomx, dc, osd);
 	float scalex = dc.cols/1920.0;
 	float scaley = dc.rows/1080.0;
 	int winWidth = 40*scalex;
@@ -172,27 +170,19 @@ int CMMTDProcess::OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color,
 	bool bFixSize = false;
 
 	OSA_mutexLock(&m_mutexlock);
-	for(int i=0; i<MAX_TGT_NUM; i++){
-		if(m_units[chId][i].bHasDraw){
-			rectangle(dc, m_units[chId][i].drawRC, cvScalar(0), m_units[chId][i].thickness, m_units[chId][i].lineType );
-			putText(dc, m_units[chId][i].txt, m_units[chId][i].txtPos, CV_FONT_HERSHEY_COMPLEX, scalex,cvScalar(0));
-			m_units[chId][i].bHasDraw = false;
-		}
-		if(m_units[chId][i].bNeedDraw){
-			sprintf(m_units[chId][i].txt, "%d", i+1);
-			if(!bFixSize){
-				winWidth = m_units[chId][i].orgRC.width;
-				winHeight = m_units[chId][i].orgRC.height;
+	if(m_curChId == chId)
+	{
+		for(int i=0; i<MAX_TGT_NUM; i++){
+			if(m_units[chId][i].bNeedDraw){
+				if(!bFixSize){
+					winWidth = m_units[chId][i].orgRC.width;
+					winHeight = m_units[chId][i].orgRC.height;
+				}
+				Rect rc(m_units[chId][i].orgPos.x-winWidth/2, m_units[chId][i].orgPos.y-winHeight/2, winWidth, winHeight);
+				rc = tRectScale(rc, m_imgSize[chId], cv::Size(dc.cols, dc.rows));
+				m_units[chId][i].drawRC = rc;
+				osd->numberedBox(m_units[chId][i].drawRC, i+1, 0);
 			}
-			Rect rc(m_units[chId][i].orgPos.x-winWidth/2, m_units[chId][i].orgPos.y-winHeight/2, winWidth, winHeight);
-			rc = tRectScale(rc, m_imgSize[chId], cv::Size(dc.cols, dc.rows));
-			m_units[chId][i].drawRC = rc;
-			m_units[chId][i].thickness = thickness;
-			rectangle(dc, m_units[chId][i].drawRC, color, m_units[chId][i].thickness, m_units[chId][i].lineType );
-			Point pos(rc.x+rc.width+2, rc.y-8);
-			m_units[chId][i].txtPos = pos;
-			putText(dc, m_units[chId][i].txt, m_units[chId][i].txtPos, CV_FONT_HERSHEY_COMPLEX, scalex,color);
-			m_units[chId][i].bHasDraw = true;
 		}
 	}
 	OSA_mutexUnlock(&m_mutexlock);

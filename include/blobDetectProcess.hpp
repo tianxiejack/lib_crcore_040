@@ -42,7 +42,7 @@ public :
 	virtual ~CBlobDetectProcess();
 	virtual int process(int chId, int fovId, int ezoomx, Mat frame);
 	virtual int dynamic_config(int type, int iPrm, void* pPrm = NULL, int prmSize = 0);
-	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color, int thickness);
+	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd);
 
 	bool m_bEnable;
 	vBlobTarget m_targets[MAX_CHAN];

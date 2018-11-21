@@ -279,8 +279,38 @@ static const char *szTexturePointLightDiffFP =
 												" gl_FragColor = vFragColor * texture2D(textureUnit0, vTex);"
 												"}";
 
+static const char *szTextureShaderVP =	"attribute vec4 vVertex;"
+										"attribute vec4 vColor;"
+										"attribute vec2 vTexCoord0;"
+										"varying vec4 vFragColor;"
+										"varying vec2 vTex;"
+										"void main(void) "
+										"{ vTex = vTexCoord0;"
+										" vFragColor = vColor; "
+										" gl_Position = vVertex; "
+										"}";
 
-
+static const char *szTextureShaderFP =
+#ifdef OPENGL_ES
+										"precision mediump float;"
+#endif
+										"varying vec2 vTex;"
+										"uniform sampler2D textureUnit0;"
+										"varying vec4 vFragColor;"
+										"void main(void) "
+										"{"
+										"	vec4  vAlpha;"
+										"	vAlpha = texture(textureUnit0, vTex);"
+#if 1
+										"	vFragColor.a *= vAlpha.a;"
+										"	gl_FragColor = vFragColor;"
+#else
+		"	gl_FragColor.r = 1.0;"
+		"	gl_FragColor.g = 1.0;"
+		"	gl_FragColor.b = 1.0;"
+		"	gl_FragColor.a = 1.0;"
+#endif
+										"}";
 
 
 
@@ -346,6 +376,10 @@ bool GLShaderManager::InitializeStockShaders(void)
     uiStockShaders[GLT_SHADER_TEXTURE_RECT_REPLACE] = gltLoadShaderPairSrcWithAttributes(szTextureRectReplaceVP, szTextureRectReplaceFP, 2, 
                                                                                              GLT_ATTRIBUTE_VERTEX, "vVertex", GLT_ATTRIBUTE_TEXTURE0, "vTexCoord0");
 
+	uiStockShaders[GLT_SHADER_TEXTURE_SHADED]  = gltLoadShaderPairSrcWithAttributes(szTextureShaderVP, szTextureShaderFP, 3,
+																								GLT_ATTRIBUTE_VERTEX, "vVertex", GLT_ATTRIBUTE_COLOR, "vColor", GLT_ATTRIBUTE_TEXTURE0, "vTexCoord0");
+
+
     if(uiStockShaders[0] != 0)
 		return true;
 		
@@ -366,6 +400,7 @@ GLint GLShaderManager::UseStockShader(GLT_STOCK_SHADER nShaderID, ...)
 	va_start(uniformList, nShaderID);
 
 	// Bind to the correct shader
+	gltCheckErrors(uiStockShaders[nShaderID]);
 	glUseProgram(uiStockShaders[nShaderID]);
 
 	// Set up the uniforms
@@ -469,6 +504,11 @@ GLint GLShaderManager::UseStockShader(GLT_STOCK_SHADER nShaderID, ...)
 			glUniform1i(iTextureUnit, iInteger);
 			break;
 
+		case GLT_SHADER_TEXTURE_SHADED: // Multiply the texture by the geometry color
+			iTextureUnit = glGetUniformLocation(uiStockShaders[nShaderID], "textureUnit0");
+			iInteger = va_arg(uniformList, int);
+			glUniform1i(iTextureUnit, iInteger);
+			break;
 
 		case GLT_SHADER_SHADED:		// Just the modelview projection matrix. Color is an attribute
 			iTransform = glGetUniformLocation(uiStockShaders[nShaderID], "mvpMatrix");

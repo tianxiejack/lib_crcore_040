@@ -4,7 +4,8 @@
  *  Created on: Sep 27, 2018
  *      Author: wzk
  */
-#include <glew.h>
+#include "glosd.hpp"
+//#include <glew.h>
 #include <glut.h>
 #include <freeglut_ext.h>
 #include "blobDetectProcess.hpp"
@@ -19,10 +20,20 @@
 #include "thread.h"
 #include "crCore.hpp"
 
+namespace cr_osd
+{
+extern void put(wchar_t* s, const cv::Point& pos, const cv::Scalar& color, size_t n, const wchar_t* format, ...);
+extern void put(const wchar_t* s, const cv::Point& pos, const cv::Scalar& color);
+extern void clear(void);
+};
+//using namespace cr_osd;
+std::vector<cr_osd::GLOSDFactory *> vosdFactorys;
 #define isEqual(a,b) (fabs((a)-(b))<=1.0e-6)
 
 namespace cr_local
 {
+static cr_osd::GLOSDFactory *vOSDs[CORE_CHN_MAX];
+static cr_osd::GLOSD *glosdFront = NULL;
 static CEncTrans *enctran = NULL;
 static CRender *render = NULL;
 static IProcess *proc = NULL;
@@ -31,7 +42,7 @@ static CBkgdDetectProcess *bkgd = NULL;
 static CMotionDetectProcess *motion = NULL;
 static CMMTDProcess *mmtd = NULL;
 static CGeneralProc *general = NULL;
-
+static int initChannels = 0;
 static int curChannelFlag = 0;
 static int curSubChannelIdFlag = -1;
 static int curFovIdFlag[CORE_CHN_MAX];
@@ -48,9 +59,15 @@ static bool enableOSDFlag = true;
 static int ezoomxFlag[CORE_CHN_MAX];
 static float scaleFlag[CORE_CHN_MAX];
 static int colorYUVFlag = WHITECOLOR;
+static cv::Scalar colorRGBAFlag = cv::Scalar::all(255);
+static int curThicknessFlag = 2;
 static int nValidChannels = CORE_CHN_MAX;
 static cv::Size channelsImgSize[CORE_CHN_MAX];
 static int channelsFormat[CORE_CHN_MAX];
+static char fileNameFont[CORE_CHN_MAX][256];
+static char fileNameFontRender[256];
+static int fontSizeVideo[CORE_CHN_MAX];
+static int fontSizeRender = 45;
 
 static int defaultEncParamTab[][8] = {
 	//bitrate; minQP; maxQP;minQI;maxQI;minQB;maxQB;
@@ -60,8 +77,65 @@ static int defaultEncParamTab[][8] = {
 };
 static int *userEncParamTab[3] = {NULL, NULL, NULL};
 
-static void localInit(int nChannels)
+static int ReadCfgFile_OSD(int nChannels)
 {
+	int iret = -1;
+	string cfgFile;
+	cfgFile = "ConfigOSDFile.yml";
+	FILE *fp = fopen(cfgFile.c_str(), "rt");
+	if(fp != NULL)
+	{
+		fseek(fp, 0, SEEK_END);
+		int len = ftell(fp);
+		fclose(fp);
+
+		if(len > 10)
+		{
+			FileStorage fr(cfgFile, FileStorage::READ);
+			if(fr.isOpened())
+			{
+				int ivalue;
+				string szfile;
+				for(int chId=0; chId<nChannels; chId++){
+					string strkey;
+					char keyStr[256];
+					sprintf(keyStr, "ch%02d_font_filename", chId);
+					strkey = keyStr;
+					szfile = (string)fr[strkey];
+					if(szfile.length()>0){
+						strcpy(fileNameFont[chId], szfile.data());
+					}
+					sprintf(keyStr, "ch%02d_font_size", chId);
+					strkey = keyStr;
+					ivalue = (int)fr[strkey];
+					if(ivalue>10 && ivalue<200){
+						fontSizeVideo[chId] = ivalue;
+					}
+				}
+
+				szfile = (string)fr["Front_font_filename"];
+				if(szfile.length()>0){
+					strcpy(fileNameFontRender, szfile.data());
+				}
+				ivalue = (int)fr["Front_font_size"];
+				if(ivalue>10 && ivalue<200){
+					fontSizeRender = ivalue;
+				}
+
+				iret = 0;
+			}
+		}
+	}
+
+	for(int chId=0; chId<nChannels; chId++)
+		OSA_printf("OSD: video%02d fontSize = %d [%s]",chId, fontSizeVideo[chId], fileNameFont[chId]);
+	OSA_printf("OSD: Front fontSize = %d [%s]\n\n",fontSizeRender, fileNameFontRender);
+	return iret;
+}
+
+static void localInit(int nChannels, bool bEncoder)
+{
+	initChannels = nChannels;
 	curChannelFlag = 0;
 	memset(curFovIdFlag, 0, sizeof(curFovIdFlag));
 	enableTrackFlag = false;
@@ -69,18 +143,44 @@ static void localInit(int nChannels)
 	memset(enableEnhFlag, 0, sizeof(enableEnhFlag));
 	memset(bindBlendFlag, 0, sizeof(bindBlendFlag));
 	for(int i=0; i<CORE_CHN_MAX; i++){
+		vOSDs[i] = NULL;
 		enableEncoderFlag[i] = true;
 		ezoomxFlag[i] = 1;
 		scaleFlag[i] = 1.0f;
 		bindBlendTFlag[i] = -1;
+		//sprintf(fileNameFont[i], "/usr/share/fonts/truetype/abyssinica/AbyssinicaSIL-R.ttf");
+		//sprintf(fileNameFont[i], "/usr/share/fonts/truetype/freefont/FreeMono.ttf");
+		//sprintf(fileNameFont[i], "/usr/share/fonts/truetype/freefont/FreeMonoBold.ttf");
+		//sprintf(fileNameFont[i], "/usr/share/fonts/truetype/freefont/FreeSans.ttf");
+		//sprintf(fileNameFont[i], "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf");
+		//sprintf(fileNameFont[i], "/usr/share/fonts/truetype/freefont/FreeSansBoldOblique.ttf");
+		//sprintf(fileNameFont[i], "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf");
+		//sprintf(fileNameFont[i], "/usr/share/fonts/truetype/freefont/FreeSerif.ttf");
+		//sprintf(fileNameFont[i],"/usr/share/fonts/truetype/ubuntu-font-family/Ubuntu-L.ttf");
+		//sprintf(fileNameFont[i],"/usr/share/fonts/truetype/ubuntu-font-family/Ubuntu-M.ttf");
+		//sprintf(fileNameFont[i],"/usr/share/fonts/truetype/ubuntu-font-family/Ubuntu-R.ttf");
+		//sprintf(fileNameFont[i],"/usr/share/fonts/truetype/fonts-japanese-gothic.ttf");
+		//sprintf(fileNameFont[i],"/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf");
+		sprintf(fileNameFont[i],"/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf");
+		//sprintf(fileNameFont[i],"/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Regular.ttf");
+		//sprintf(fileNameFont[i],"/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf");
+		fontSizeVideo[i] = 40;
 	}
+	glosdFront = NULL;
 	enableOSDFlag = true;
 	colorYUVFlag = WHITECOLOR;
+	colorRGBAFlag = cv::Scalar::all(255);
+	curThicknessFlag = 2;
+	if(bEncoder)
+		curThicknessFlag = 2;
 	userEncParamTab[0] = defaultEncParamTab[0];
 	userEncParamTab[1] = defaultEncParamTab[1];
 	userEncParamTab[2] = defaultEncParamTab[2];
+	sprintf(fileNameFontRender, "/usr/share/fonts/truetype/abyssinica/simsun.ttc");
+	fontSizeRender = 45;
 
 	nValidChannels = nChannels;
+	ReadCfgFile_OSD(nChannels);
 	OSA_assert(nChannels>0 && nChannels<=CORE_CHN_MAX);
 }
 
@@ -92,6 +192,9 @@ static int setEncTransLevel(int iLevel)
 {
 	ENCTRAN_encPrm encPrm;
 	int iret = OSA_SOK;
+
+	if(enctran == NULL)
+		return iret;
 
 	encPrm.bitrate = userEncParamTab[iLevel][0];
 	encPrm.minQP = userEncParamTab[iLevel][1];
@@ -131,7 +234,7 @@ static int setSubChId(int chId)
 {
 	curSubChannelIdFlag = chId;
 	if(render!= NULL){
-		render->dynamic_config(CRender::DS_CFG_ChId, 2, &chId);
+		render->dynamic_config(CRender::DS_CFG_ChId, 1, &chId);
 	}
 	return OSA_SOK;
 }
@@ -191,8 +294,12 @@ static int enableTrackByMMTD(int index, cv::Size *winSize, bool bFixSize)
 	acqrc.height = mmtd->m_target[index].Box.height;
 
 	if(winSize != NULL){
+		acqrc.x += (acqrc.width*0.5);
+		acqrc.y += (acqrc.height*0.5);
 		acqrc.width = winSize->width;
 		acqrc.height = winSize->height;
+		acqrc.x -= (acqrc.width*0.5);
+		acqrc.y -= (acqrc.height*0.5);
 	}
 
 	proc->dynamic_config(CTrackerProc::VP_CFG_AcqWinSize, bFixSize);
@@ -223,7 +330,7 @@ static int enableBlob(bool enable)
 	return OSA_SOK;
 }
 
-static int bindBlend(int chId, int blendchId, cv::Matx44f  matric)
+static int bindBlend(int chId, int blendchId, cv::Matx44f matric)
 {
 	int ret = OSA_SOK;
 	if(chId<0 || chId >=CORE_CHN_MAX)
@@ -254,14 +361,34 @@ static int bindBlend(int blendchId, cv::Matx44f matric)
 	return bindBlend(curChannelFlag, blendchId, matric);
 }
 
+static int setWinPos(int winId, cv::Rect rc)
+{
+	int ret = OSA_SOK;
+	if(render!= NULL){
+		ret = render->dynamic_config(CRender::DS_CFG_ViewPos, winId, &rc);
+	}
+	return ret;
+}
+
+static int setWinMatric(int winId, cv::Matx44f matric)
+{
+	int ret = OSA_SOK;
+	if(render!= NULL){
+		ret = render->dynamic_config(CRender::DS_CFG_ViewTransMat, winId, matric.val);
+	}
+	return ret;
+}
+
 static int enableOSD(bool enable)
 {
 	enableOSDFlag = enable;
 	return OSA_SOK;
 }
 
-int enableEncoder(int chId, bool enable)
+static int enableEncoder(int chId, bool enable)
 {
+	if(enctran == NULL)
+		return OSA_SOK;
 	enableEncoderFlag[chId] = enable;
 	return enctran->dynamic_config(CEncTrans::CFG_Enable, chId, &enable);
 }
@@ -321,14 +448,12 @@ static int setOSDColor(int value, int thickness)
 	B = Y+((455*(U-128))>>8);
 
 	colorYUVFlag = value;
-
-	if(general->m_dc[0].channels() == 4)
-	{
-		general->m_color = cvScalar(R,G,B,255);
+	colorRGBAFlag = cv::Scalar(R,G,B,255);
+	curThicknessFlag = thickness;
+	if(render != NULL){
+		render->m_dcColor = cvScalar(R,G,B,255);
+		//render->m_thickness = thickness;
 	}
-	general->m_thickness = thickness;
-	if(render != NULL)
-		render->m_osdColor = cvScalar(R,G,B,255);
 }
 
 static int setOSDColor(cv::Scalar rgba, int thickness)
@@ -339,12 +464,12 @@ static int setOSDColor(cv::Scalar rgba, int thickness)
 	U = ((-44*R-87*G+131*B)>>8)+128;
 	V = ((131*R-110*G-21*B)>>8)+128;
 	colorYUVFlag = (Y&0xff)|((U&0xff)<<8)|((V&0xff)<<16);
-	if(general->m_dc[0].channels() == 4){
-		general->m_color = rgba;
+	colorRGBAFlag = rgba;
+	curThicknessFlag = thickness;
+	if(render != NULL){
+		render->m_dcColor = rgba;
+		//render->m_thickness = thickness;
 	}
-	general->m_thickness = thickness;
-	if(render != NULL)
-		render->m_osdColor = rgba;
 }
 
 
@@ -398,9 +523,11 @@ public:
 		queue.clear();
 		return OSA_SOK;
 	}
-	int input(int chId,unsigned char *data, struct v4l2_buffer *vbuf, cv::Size vSize, int format, int channels)
+	int input(int chId,unsigned char *data, const struct v4l2_buffer *vbuf, cv::Size vSize, int format, int channels)
 	{
 		int ret = OSA_SOK;
+		//OSA_printf("%s %d: ch%d(%ld) %d x %d %d", __func__, __LINE__,
+		//		chId, queue.size(), vSize.width, vSize.height, channels);
 		if(chId>=queue.size()) return OSA_EFAIL;
 		OSA_assert(data != NULL);
 		OSA_assert(vbuf != NULL);
@@ -422,6 +549,7 @@ public:
 			bufInfo->timestamp = (uint64_t)getTickCount();
 			bufInfo->virtAddr = data;
 			image_queue_putFull(hndl, bufInfo);
+			//OSA_printf("%s %d: %d x %d c%d", __func__, __LINE__, bufInfo->width, bufInfo->height, bufInfo->channels);
 		}else{
 			if(chId != 1)
 			OSA_printf("InputQueue %s %d: ch%d over flow", __func__, __LINE__, chId);
@@ -455,7 +583,8 @@ static OSA_SemHndl *imgQEncSem[CORE_CHN_MAX] = {NULL,};
 static unsigned char *memsI420[CORE_CHN_MAX] = {NULL,};
 static cv::Mat imgOsd[CORE_CHN_MAX];
 static OSA_MutexHndl *cumutex = NULL;
-static void renderCall(void);
+static void renderInitCall(void);
+static void renderCall(int stepIdx, int stepSub, int context);
 
 static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 {
@@ -467,7 +596,7 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 	bool bEncoder = initParam->bEncoder;
 	bool bRender = initParam->bRender;
 	bool bHideOSD = initParam->bHideOSD;
-	localInit(channels);
+	localInit(channels, bEncoder);
 	if(initParam->encoderParamTab[0]!=NULL)
 		userEncParamTab[0] = initParam->encoderParamTab[0];
 	if(initParam->encoderParamTab[1]!=NULL)
@@ -489,6 +618,10 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		ret = cudaHostAlloc((void**)&mem, width*height, cudaHostAllocDefault);
 		imgOsd[chId] = Mat(height, width, CV_8UC1, mem);
 		memset(imgOsd[chId].data, 0, imgOsd[chId].cols*imgOsd[chId].rows*imgOsd[chId].channels());
+		if(bEncoder){
+			vOSDs[chId] = new cr_osd::DCOSD(&imgOsd[chId], fontSizeVideo[chId], fileNameFont[chId]);
+			vosdFactorys.push_back(vOSDs[chId]);
+		}
 	}
 
 	if(bEncoder)
@@ -539,6 +672,7 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		dsInit.nQueueSize = 2;
 		dsInit.disFPS = initParam->renderFPS;
 		dsInit.renderfunc = renderCall;
+		dsInit.initfunc = renderInitCall;
 		dsInit.winWidth = initParam->renderSize.width;
 		dsInit.winHeight = initParam->renderSize.height;
 		for(chId=0; chId<channels; chId++){
@@ -553,12 +687,12 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		render->m_cumutex = cumutex;
 		render->create();
 		render->init(&dsInit);
-		render->run();
-		for(chId=0; chId<channels; chId++)
+		for(chId=0; chId<channels; chId++){
 			imgQRender[chId] = &render->m_bufQue[chId];
-
+		}
 		inputQ = new InputQueue;
 		inputQ->create(channels);
+		render->run();
 	}
 
 	blob = new CBlobDetectProcess();
@@ -574,15 +708,15 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 
 	for(chId=0; chId<channels; chId++){
 		general->m_dc[chId] = imgOsd[chId];
+		general->m_vosds[chId] = vOSDs[chId];
 		if(!bEncoder && bRender){
-			general->m_dc[chId] = render->m_imgOsd[0];
+			general->m_dc[chId] = render->m_imgDC[0];
 		}
 		general->m_imgSize[chId] = channelsImgSize[chId];
 	}
-	if(!bEncoder && bRender){
-		general->m_color = cvScalarAll(255);
-		render->m_bOsd = !bHideOSD;
-	}
+	//if(!bEncoder && bRender){
+	//	render->m_bDC = !bHideOSD;
+	//}
 
 	proc = general;
 	general->creat();
@@ -603,6 +737,13 @@ static int uninit()
 		render->destroy();
 		CRender::destroyObject(render);
 	}
+
+	if(enctran == NULL){
+		for(int i=0; i<vosdFactorys.size(); i++)
+			delete vosdFactorys[i];
+	}
+	vosdFactorys.clear();
+
 	delete enctran;
 	delete general;
 	delete mmtd;
@@ -612,7 +753,11 @@ static int uninit()
 	for(int chId=0; chId<nValidChannels; chId++){
 		cudaFreeHost(imgOsd[chId].data);
 		cudaFreeHost(memsI420[chId]);
+		if(vOSDs[chId] != NULL)
+			delete vOSDs[chId];
+		vOSDs[chId] = NULL;
 	}
+
 	cuConvertUinit();
 	if(cumutex != NULL){
 		OSA_mutexUnlock(cumutex);
@@ -625,7 +770,7 @@ static int uninit()
 		delete inputQ;
 }
 #define ZeroCpy	(0)
-static void encTranFrame(int chId, Mat img, struct v4l2_buffer bufInfo, bool bEnc)
+static void encTranFrame(int chId, const Mat& img, const struct v4l2_buffer& bufInfo, bool bEnc)
 {
 	Mat i420;
 	OSA_BufInfo* info = NULL;
@@ -677,7 +822,7 @@ static void encTranFrame(int chId, Mat img, struct v4l2_buffer bufInfo, bool bEn
 }
 #undef ZeroCpy
 
-static void renderFrameAfterEnc(int chId, Mat img, struct v4l2_buffer bufInfo)
+static void renderFrameAfterEnc(int chId, const Mat& img, const struct v4l2_buffer& bufInfo)
 {
 	Mat bgr;
 	OSA_BufInfo* info = image_queue_getEmpty(imgQRender[chId]);
@@ -700,7 +845,7 @@ static void renderFrameAfterEnc(int chId, Mat img, struct v4l2_buffer bufInfo)
 	}
 }
 
-static void renderFrame(int chId, Mat img, struct v4l2_buffer bufInfo, int format)
+static void renderFrame(int chId, const Mat& img, const struct v4l2_buffer& bufInfo, int format)
 {
 	bool bRender = (chId == curChannelFlag || chId == curSubChannelIdFlag || bindBlendFlag[chId] != 0);
 
@@ -717,6 +862,12 @@ static void renderFrame(int chId, Mat img, struct v4l2_buffer bufInfo, int forma
 				else
 					cuConvert_yuv2bgr_yuyv_async(chId, img, frame, CUT_FLAG_devAlloc);
 				info->format = V4L2_PIX_FMT_BGR24;
+			}
+			else if(format==V4L2_PIX_FMT_BGR24){
+				frame = Mat(img.rows,img.cols,CV_8UC3, info->physAddr);
+				cudaMemcpy(info->physAddr, img.data, frame.rows*frame.cols*frame.channels(), cudaMemcpyHostToHost);
+				info->format = V4L2_PIX_FMT_BGR24;
+				//OSA_printf("%s %d: %d x %d", __func__, __LINE__, frame.cols, frame.rows);
 			}
 			else//if(format==V4L2_PIX_FMT_GREY)
 			{
@@ -743,8 +894,8 @@ static void renderFrame(int chId, Mat img, struct v4l2_buffer bufInfo, int forma
 		}
 	}
 }
-
-static void processFrame(int cap_chid,unsigned char *src, struct v4l2_buffer capInfo, int format)
+#if 0
+static void processFrame(int cap_chid, unsigned char *src, const struct v4l2_buffer& capInfo, int format)
 {
 	Mat img;
 
@@ -763,8 +914,18 @@ static void processFrame(int cap_chid,unsigned char *src, struct v4l2_buffer cap
 		//OSA_printf("%s ch%d %d", __func__, cap_chid, OSA_getCurTimeInMsec());
 		//OSA_printf("%s: %d ch%d %p", __func__, __LINE__, cap_chid, src);
 		img = Mat(channelsImgSize[cap_chid].height,channelsImgSize[cap_chid].width,CV_8UC1,src);
+	}
+	else if(format==V4L2_PIX_FMT_BGR24){
+		img = Mat(channelsImgSize[cap_chid].height,channelsImgSize[cap_chid].width,CV_8UC3,src);
+		//OSA_printf("%s %d: %d x %d", __func__, __LINE__, img.cols, img.rows);
 	}else{
 		OSA_assert(0);
+	}
+
+	//if(imgQEnc[cap_chid] != NULL && vOSDs[cap_chid] != NULL){
+	//	OSA_assert(enctran != NULL);
+	if(vOSDs[cap_chid] != NULL){
+		vOSDs[cap_chid]->begin(colorRGBAFlag, curThicknessFlag);
 	}
 
 	if(curChannelFlag == cap_chid || curSubChannelIdFlag == cap_chid || bindBlendFlag[cap_chid] != 0)
@@ -785,9 +946,13 @@ static void processFrame(int cap_chid,unsigned char *src, struct v4l2_buffer cap
 
 	if(imgQEnc[cap_chid] != NULL)
 	{
+		if(vOSDs[cap_chid] != NULL && enableOSDFlag)
+			vOSDs[cap_chid]->Draw();
 		encTranFrame(cap_chid, img, capInfo, enableEncoderFlag[cap_chid]);
 		if(imgQRender[cap_chid] != NULL)
 			renderFrameAfterEnc(cap_chid, img, capInfo);
+		if(vOSDs[cap_chid] != NULL)
+			vOSDs[cap_chid]->end();
 	}
 	else if(imgQRender[cap_chid] != NULL)
 	{
@@ -802,7 +967,115 @@ static void processFrame(int cap_chid,unsigned char *src, struct v4l2_buffer cap
 			};
 			render->dynamic_config(CRender::DS_CFG_VideoTransMat, cap_chid, mat4);
 		}
-		render->m_bOsd = enableOSDFlag;
+		//render->m_bOsd = enableOSDFlag;
+		renderFrame(cap_chid, img, capInfo, format);
+	}
+
+	//struct timespec ns1;
+	//clock_gettime(CLOCK_MONOTONIC_RAW, &ns1);
+	//printf("[%ld.%ld] ch%d timestamp %ld.%ld flags %08X\n", ns1.tv_sec, ns1.tv_nsec/1000000,
+	//		cap_chid, ns0.tv_sec, ns0.tv_nsec/1000000, info.flags);
+}
+#endif
+
+static void processFrameAtOnce(int cap_chid, unsigned char *src, const struct v4l2_buffer& capInfo, int format)
+{
+	if(capInfo.flags & V4L2_BUF_FLAG_ERROR)
+		return;
+
+	if(curChannelFlag == cap_chid || curSubChannelIdFlag == cap_chid || bindBlendFlag[cap_chid] != 0){
+		Mat img;
+		if(format==V4L2_PIX_FMT_YUYV)
+		{
+			img	= Mat(channelsImgSize[cap_chid].height,channelsImgSize[cap_chid].width,CV_8UC2, src);
+		}
+		else if(format==V4L2_PIX_FMT_GREY)
+		{
+			img = Mat(channelsImgSize[cap_chid].height,channelsImgSize[cap_chid].width,CV_8UC1,src);
+		}
+		else if(format==V4L2_PIX_FMT_BGR24){
+			img = Mat(channelsImgSize[cap_chid].height,channelsImgSize[cap_chid].width,CV_8UC3,src);
+		}else{
+			OSA_assert(0);
+		}
+		proc->process(cap_chid, curFovIdFlag[cap_chid], ezoomxFlag[cap_chid], img);
+	}
+
+}
+
+static void processFrame(int cap_chid, unsigned char *src, const struct v4l2_buffer& capInfo, int format)
+{
+	Mat img;
+
+	if(capInfo.flags & V4L2_BUF_FLAG_ERROR)
+		return;
+	//struct timespec ns0;
+	//clock_gettime(CLOCK_MONOTONIC_RAW, &ns0);
+	if(format==V4L2_PIX_FMT_YUYV)
+	{
+		//OSA_printf("%s ch%d %d", __func__, cap_chid, OSA_getCurTimeInMsec());
+		//OSA_printf("%s: %d ch%d %p", __func__, __LINE__, cap_chid, src);
+		img	= Mat(channelsImgSize[cap_chid].height,channelsImgSize[cap_chid].width,CV_8UC2, src);
+	}
+	else if(format==V4L2_PIX_FMT_GREY)
+	{
+		//OSA_printf("%s ch%d %d", __func__, cap_chid, OSA_getCurTimeInMsec());
+		//OSA_printf("%s: %d ch%d %p", __func__, __LINE__, cap_chid, src);
+		img = Mat(channelsImgSize[cap_chid].height,channelsImgSize[cap_chid].width,CV_8UC1,src);
+	}
+	else if(format==V4L2_PIX_FMT_BGR24){
+		img = Mat(channelsImgSize[cap_chid].height,channelsImgSize[cap_chid].width,CV_8UC3,src);
+		//OSA_printf("%s %d: %d x %d", __func__, __LINE__, img.cols, img.rows);
+	}else{
+		OSA_assert(0);
+	}
+
+	//if(imgQEnc[cap_chid] != NULL && vOSDs[cap_chid] != NULL){
+	//	OSA_assert(enctran != NULL);
+	if(vOSDs[cap_chid] != NULL){
+		vOSDs[cap_chid]->begin(colorRGBAFlag, curThicknessFlag);
+	}
+
+	if(curChannelFlag == cap_chid || curSubChannelIdFlag == cap_chid || bindBlendFlag[cap_chid] != 0)
+		proc->OnOSD(cap_chid, curFovIdFlag[cap_chid], ezoomxFlag[cap_chid], general->m_dc[cap_chid], general->m_vosds[cap_chid]);
+
+	if(bindBlendFlag[cap_chid] != 0 && render != NULL && bkgd != NULL){
+		DS_BlendPrm prm;
+		prm.fAlpha = bkgd->m_alpha;
+		prm.thr0Min = bkgd->m_thr0Min;
+		prm.thr0Max = bkgd->m_thr0Max;
+		prm.thr1Min = bkgd->m_thr1Min;
+		prm.thr1Max = bkgd->m_thr1Max;
+		for(int chId=0; chId<DS_CHAN_MAX; chId++){
+			if((bindBlendFlag[cap_chid] & (1<<chId))!=0)
+				render->dynamic_config(CRender::DS_CFG_BlendPrm, chId*DS_CHAN_MAX+cap_chid, &prm);
+		}
+	}
+
+	if(imgQEnc[cap_chid] != NULL)
+	{
+		if(vOSDs[cap_chid] != NULL && enableOSDFlag)
+			vOSDs[cap_chid]->Draw();
+		encTranFrame(cap_chid, img, capInfo, enableEncoderFlag[cap_chid]);
+		if(imgQRender[cap_chid] != NULL)
+			renderFrameAfterEnc(cap_chid, img, capInfo);
+		if(vOSDs[cap_chid] != NULL)
+			vOSDs[cap_chid]->end();
+	}
+	else if(imgQRender[cap_chid] != NULL)
+	{
+		if(!isEqual(ezoomxFlag[cap_chid]*1.0, scaleFlag[cap_chid])){
+			scaleFlag[cap_chid] = ezoomxFlag[cap_chid]*1.0;
+			GLfloat fscale = scaleFlag[cap_chid];
+			GLfloat mat4[16] ={
+				fscale, 0.0f, 0.0f, 0.0f,
+				0.0f, fscale, 0.0f, 0.0f,
+				0.0f, 0.0f, 1.0f, 0.0f,
+				0.0f, 0.0f, 0.0f, 1.0f
+			};
+			render->dynamic_config(CRender::DS_CFG_VideoTransMat, cap_chid, mat4);
+		}
+		//render->m_bOsd = enableOSDFlag;
 		renderFrame(cap_chid, img, capInfo, format);
 	}
 
@@ -812,60 +1085,106 @@ static void processFrame(int cap_chid,unsigned char *src, struct v4l2_buffer cap
 	//		cap_chid, ns0.tv_sec, ns0.tv_nsec/1000000, info.flags);
 }
 
-static void videoInput(int cap_chid,unsigned char *src, struct v4l2_buffer capInfo, int format)
+static void videoInput(int cap_chid, unsigned char *src, const struct v4l2_buffer& capInfo, int format)
 {
+	//OSA_printf("%s %d: ch%d flags = 0x%x inputQ = %p", __func__, __LINE__, cap_chid, capInfo.flags, inputQ);
 	if(capInfo.flags & V4L2_BUF_FLAG_ERROR)
 		return;
+	processFrameAtOnce(cap_chid,src, capInfo, format);
 	if(inputQ != NULL){
-		inputQ->input(cap_chid, src, &capInfo, channelsImgSize[cap_chid], format, (format == V4L2_PIX_FMT_GREY) ? 1 : 2);
+		int channels = ( (format == V4L2_PIX_FMT_GREY) ? 1 : ((format == V4L2_PIX_FMT_BGR24 || format == V4L2_PIX_FMT_RGB24) ? 3 : 2) );
+		inputQ->input(cap_chid, src, &capInfo, channelsImgSize[cap_chid], format, channels);
 	}else{
 		processFrame(cap_chid,src, capInfo, format);
 	}
 }
 
-static void renderCall(void)
+static void renderInitCall(void)
 {
-	if(inputQ == NULL)
-		return ;
-#if 1
-	for(int chId = 0; chId < nValidChannels; chId++){
-		OSA_BufInfo* info = NULL;
-		info = inputQ->getFullQueue(chId);
-		if(info == NULL)
-			continue;
-		OSA_assert(info->chId == chId);
-		processFrame(chId, (unsigned char*)info->virtAddr, *(struct v4l2_buffer*)info->resource, info->format);
-		inputQ->putEmptyQueue(info);
+	glShaderManager.InitializeStockShaders();
+	for(int chId=0; chId<initChannels; chId++){
+		if(vOSDs[chId] == NULL)
+			vOSDs[chId] = new cr_osd::GLOSD(render->m_mainWinWidth, render->m_mainWinHeight, fontSizeVideo[chId], fileNameFont[chId]);
 	}
-#endif
-#if 0
-	for(int chId = 0; chId < nValidChannels; chId++){
-		OSA_BufInfo* info = NULL;
-		int nFull = inputQ->getFullQueueCount(chId);
-		for(int i=0; i<nFull-1; i++){
-			info = inputQ->getFullQueue(chId);
-			inputQ->putEmptyQueue(info);
+	if(enctran == NULL){
+		glosdFront = new cr_osd::GLOSD(render->m_mainWinWidth, render->m_mainWinHeight, fontSizeRender, fileNameFontRender);
+		vosdFactorys.push_back(glosdFront);
+	}
+}
+
+static void renderCall(int stepIdx, int stepSub, int context)
+{
+	if(enctran == NULL)
+	{
+		OSA_assert(imgQEnc[0] == NULL);
+		/*if(stepIdx == CRender::RUN_ENTER)
+		{
+			for(int chId =0; chId<initChannels; chId++){
+				if(vOSDs[chId] != NULL)
+					vOSDs[chId]->begin(colorRGBAFlag, curThicknessFlag);
+			}
+		}*/
+		if(stepIdx == CRender::RUN_WIN)
+		{
+			if(enableOSDFlag && stepSub == 0 && vOSDs[context] != NULL){
+				vOSDs[context]->Draw();
+			}
 		}
-		info = inputQ->getFullQueue(chId);
-		if(info == NULL)
-			continue;
-		OSA_assert(info->chId == chId);
-		processFrame(chId, (unsigned char*)info->virtAddr, *(struct v4l2_buffer*)info->resource, info->format);
-		inputQ->putEmptyQueue(info);
+		if(stepIdx == CRender::RUN_SWAP)
+		{
+			for(int chId =0; chId<initChannels; chId++){
+				if(vOSDs[chId] != NULL)
+					vOSDs[chId]->end();
+			}
+			if(glosdFront != NULL)
+				glosdFront->Draw();
+		}
 	}
-#endif
-#if 0
-	for(int chId = 0; chId < nValidChannels; chId++){
-		OSA_BufInfo* info = NULL;
-		int nFull = inputQ->getFullQueueCount(chId);
-		for(int i=0; i<nFull; i++){
+
+	if(stepIdx == CRender::RUN_ENTER)
+	{
+		if(inputQ == NULL)
+			return ;
+	#if 1
+		for(int chId = 0; chId < nValidChannels; chId++){
+			OSA_BufInfo* info = NULL;
 			info = inputQ->getFullQueue(chId);
+			if(info == NULL)
+				continue;
 			OSA_assert(info->chId == chId);
 			processFrame(chId, (unsigned char*)info->virtAddr, *(struct v4l2_buffer*)info->resource, info->format);
 			inputQ->putEmptyQueue(info);
 		}
+	#endif
+	#if 0
+		for(int chId = 0; chId < nValidChannels; chId++){
+			OSA_BufInfo* info = NULL;
+			int nFull = inputQ->getFullQueueCount(chId);
+			for(int i=0; i<nFull-1; i++){
+				info = inputQ->getFullQueue(chId);
+				inputQ->putEmptyQueue(info);
+			}
+			info = inputQ->getFullQueue(chId);
+			if(info == NULL)
+				continue;
+			OSA_assert(info->chId == chId);
+			processFrame(chId, (unsigned char*)info->virtAddr, *(struct v4l2_buffer*)info->resource, info->format);
+			inputQ->putEmptyQueue(info);
+		}
+	#endif
+	#if 0
+		for(int chId = 0; chId < nValidChannels; chId++){
+			OSA_BufInfo* info = NULL;
+			int nFull = inputQ->getFullQueueCount(chId);
+			for(int i=0; i<nFull; i++){
+				info = inputQ->getFullQueue(chId);
+				OSA_assert(info->chId == chId);
+				processFrame(chId, (unsigned char*)info->virtAddr, *(struct v4l2_buffer*)info->resource, info->format);
+				inputQ->putEmptyQueue(info);
+			}
+		}
+	#endif
 	}
-#endif
 }
 
 };//namespace cr_local
@@ -873,12 +1192,10 @@ static void renderCall(void)
 class Core_1001 : public ICore_1001
 {
 	Core_1001():m_notifySem(NULL),m_bRun(false){
-		strcpy(m_version, CORE_1001_VERSION_);
 		memset(&m_stats, 0, sizeof(m_stats));
 	};
 	virtual ~Core_1001(){uninit();};
 	friend ICore* ICore::Qury(int coreID);
-	char m_version[16];
 	OSA_SemHndl m_updateSem;
 	OSA_SemHndl *m_notifySem;
 	bool m_bRun;
@@ -897,6 +1214,7 @@ class Core_1001 : public ICore_1001
 		return NULL;
 	}
 public:
+	static char m_version[16];
 	static unsigned int ID;
 	virtual int init(void *pParam, int paramSize)
 	{
@@ -921,6 +1239,7 @@ public:
 		m_bRun = false;
 		OSA_semSignal(&m_updateSem);
 		int ret = cr_local::uninit();
+		cr_osd::clear();
 		memset(&m_stats, 0, sizeof(m_stats));
 		OSA_semDelete(&m_updateSem);
 		return ret;
@@ -928,6 +1247,18 @@ public:
 	virtual void processFrame(int chId, unsigned char *data, struct v4l2_buffer capInfo, int format)
 	{
 		cr_local::videoInput(chId, data, capInfo, format);
+		if(1)
+		{
+			static wchar_t test[128] = L"***********0123456789***********";
+			static unsigned long icnt = 0;
+			if(icnt == 0)
+				cr_osd::put(test, cv::Point(800, 30), cv::Scalar(80, 80, 80, 10), 128, L"== ID:%x v%s ==", ID, m_version);
+			if(icnt == 10)
+				swprintf(test, 128, L"");
+			icnt++;
+			//if(icnt == 1000)
+			//	icnt = 0;
+		}
 	}
 
 	virtual int setMainChId(int chId, int fovId, int ndrop, cv::Size acqSize)
@@ -997,13 +1328,13 @@ public:
 		update();
 		return ret;
 	}
-	virtual int bindBlend(int blendchId, cv::Matx44f matric)
+	virtual int bindBlend(int blendchId, const cv::Matx44f& matric)
 	{
 		int ret = cr_local::bindBlend(blendchId, matric);
 		update();
 		return ret;
 	}
-	virtual int bindBlend(int chId, int blendchId, cv::Matx44f matric)
+	virtual int bindBlend(int chId, int blendchId, const cv::Matx44f& matric)
 	{
 		int ret = cr_local::bindBlend(chId, blendchId, matric);
 		update();
@@ -1055,6 +1386,19 @@ public:
 		update();
 		return ret;
 	}
+	virtual int setWinPos(int winId, const cv::Rect& rc)
+	{
+		int ret = cr_local::setWinPos(winId, rc);
+		update();
+		return ret;
+	}
+	virtual int setWinMatric(int winId, const cv::Matx44f& matric)
+	{
+		int ret = cr_local::setWinMatric(winId, matric);
+		update();
+		return ret;
+	}
+
 	virtual int setOSDColor(int yuv, int thickness)
 	{
 		int ret = cr_local::setOSDColor(yuv, thickness);
@@ -1075,6 +1419,8 @@ public:
 	}
 };
 unsigned int Core_1001::ID = COREID_1001;
+char Core_1001::m_version[16] = CORE_1001_VERSION_;
+
 void Core_1001::update()
 {
 	//OSA_printf("%s %d: enter.", __func__, __LINE__);

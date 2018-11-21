@@ -75,6 +75,7 @@ public://close
 	float m_AxisCalibX[MAX_CHAN][MAX_NFOV_PER_CHAN];
 	float m_AxisCalibY[MAX_CHAN][MAX_NFOV_PER_CHAN];
 	Mat m_dc[MAX_CHAN];
+	IDirectOSD *m_vosds[MAX_CHAN];
 	int	m_curChId;
 	int m_curFovId[MAX_CHAN];
 	int m_curEZoomx[MAX_CHAN];
@@ -101,15 +102,13 @@ public://open
 		//OnOSD(chId, m_dc[chId], m_color, m_thickness);
 		return true;
 	}
-	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color, int thickness){
-		return CProcessBase::OnOSD(chId, fovId, ezoomx, dc, color, thickness);
+	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd){
+		return CProcessBase::OnOSD(chId, fovId, ezoomx, dc, osd);
 	};
 
 	bool algOsdRect;
 	bool TrkAim43;
 	bool moveStat;
-	CvScalar m_color;
-	int m_thickness;
 protected:
 	//CRender m_render;
 	//CEncTrans m_render;

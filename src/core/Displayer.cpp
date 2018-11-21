@@ -7,7 +7,7 @@
 #include "glosd.hpp"
 //#include <GLShaderManager.h>
 //#include <gl.h>
-//#include <glew.h>
+#include <glew.h>
 #include <glut.h>
 #include <freeglut_ext.h>
 #include <cuda.h>
@@ -48,7 +48,7 @@ void CRender::destroyObject(CRender* obj)
 
 CRender::CRender()
 :m_mainWinWidth(1920),m_mainWinHeight(1080),m_renderCount(0),
-m_bRun(false),m_bFullScreen(false),m_bOsd(false),
+m_bRun(false),m_bFullScreen(false),m_bDC(false),
  m_bUpdateVertex(false), m_timerRun(false),m_tmRender(0ul),m_waitSync(false),
  m_telapse(5.0), m_cumutex(NULL)
 {
@@ -62,7 +62,8 @@ m_bRun(false),m_bFullScreen(false),m_bOsd(false),
 		m_blendMap[chId] = -1;
 		m_maskMap[chId] = -1;
 	}
-	m_osdColor = cv::Scalar_<float>(255, 255, 255, 0);
+	m_dcColor = cv::Scalar_<float>(255, 255, 255, 255);
+	//m_thickness = 2;
 }
 
 CRender::~CRender()
@@ -118,9 +119,9 @@ int CRender::destroy()
 
 	OSA_mutexDelete(&m_mutex);
 	for(i=0; i<DS_DC_CNT; i++){
-		if(m_imgOsd[i].data != NULL)
-			cudaFreeHost(m_imgOsd[i].data);
-		m_imgOsd[i].data = NULL;
+		if(m_imgDC[i].data != NULL)
+			cudaFreeHost(m_imgDC[i].data);
+		m_imgDC[i].data = NULL;
 	}
 
 	return 0;
@@ -135,17 +136,8 @@ int CRender::initRender(bool updateMap)
 	}
 	m_renders[i].displayrect.x = 0;
 	m_renders[i].displayrect.y = 0;
-	m_renders[i].displayrect.w = m_mainWinWidth;
-	m_renders[i].displayrect.h = m_mainWinHeight;
-	i++;
-
-	if(updateMap){
-		m_renders[i].video_chId    = -1;
-	}
-	m_renders[i].displayrect.x = 0;
-	m_renders[i].displayrect.y = 0;
-	m_renders[i].displayrect.w = m_mainWinWidth;
-	m_renders[i].displayrect.h = m_mainWinHeight;
+	m_renders[i].displayrect.width = m_mainWinWidth;
+	m_renders[i].displayrect.height = m_mainWinHeight;
 	i++;
 
 	if(updateMap){
@@ -153,8 +145,8 @@ int CRender::initRender(bool updateMap)
 	}
 	m_renders[i].displayrect.x = m_mainWinWidth*2/3;
 	m_renders[i].displayrect.y = m_mainWinHeight*2/3;
-	m_renders[i].displayrect.w = m_mainWinWidth/3;
-	m_renders[i].displayrect.h = m_mainWinHeight/3;
+	m_renders[i].displayrect.width = m_mainWinWidth/3;
+	m_renders[i].displayrect.height = m_mainWinHeight/3;
 	i++;
 
 	if(updateMap){
@@ -162,8 +154,17 @@ int CRender::initRender(bool updateMap)
 	}
 	m_renders[i].displayrect.x = m_mainWinWidth*2/3;
 	m_renders[i].displayrect.y = m_mainWinHeight*2/3;
-	m_renders[i].displayrect.w = m_mainWinWidth/3;
-	m_renders[i].displayrect.h = m_mainWinHeight/3;
+	m_renders[i].displayrect.width = m_mainWinWidth/3;
+	m_renders[i].displayrect.height = m_mainWinHeight/3;
+	i++;
+
+	if(updateMap){
+		m_renders[i].video_chId    = -1;
+	}
+	m_renders[i].displayrect.x = m_mainWinWidth*2/3;
+	m_renders[i].displayrect.y = m_mainWinHeight*2/3;
+	m_renders[i].displayrect.width = m_mainWinWidth/3;
+	m_renders[i].displayrect.height = m_mainWinHeight/3;
 	i++;
 
 	m_renderCount = i;
@@ -306,9 +307,9 @@ int CRender::init(DS_InitPrm *pPrm)
 		OSA_assert(et == cudaSuccess);
 		memset(mem, 0, screenSize.width*screenSize.height*nChannel);
 		if(nChannel == 1)
-			m_imgOsd[i] = cv::Mat(screenSize.height, screenSize.width, CV_8UC1, mem);
+			m_imgDC[i] = cv::Mat(screenSize.height, screenSize.width, CV_8UC1, mem);
 		else
-			m_imgOsd[i] = cv::Mat(screenSize.height, screenSize.width, CV_8UC4, mem);
+			m_imgDC[i] = cv::Mat(screenSize.height, screenSize.width, CV_8UC4, mem);
 	}
 
 	initRender();
@@ -431,6 +432,16 @@ int CRender::dynamic_config(DS_CFG type, int iPrm, void* pPrm)
 		gl_updateVertex();
 	}
 
+
+	if(type == DS_CFG_ViewPos){
+		if(iPrm >= m_renderCount || iPrm < 0)
+			return -1;
+		if(pPrm == NULL)
+			return -2;
+		rc = (DS_Rect*)pPrm;
+		m_renders[iPrm].displayrect = *rc;
+	}
+
 	if(type == DS_CFG_BlendTransMat){
 		if(iPrm >= DS_CHAN_MAX*DS_CHAN_MAX || iPrm < 0)
 			return -1;
@@ -550,7 +561,7 @@ void CRender::gl_init()
 	}
 
 	gl_loadProgram();
-	glShaderManager.InitializeStockShaders();
+	//glShaderManager.InitializeStockShaders();
 
 	glGenBuffers(DS_CHAN_MAX, buffId_input);
 	glGenTextures(DS_CHAN_MAX, textureId_input);
@@ -565,22 +576,22 @@ void CRender::gl_init()
 		glTexImage2D(GL_TEXTURE_2D, 0, 3, 1920, 1080, 0, GL_BGR_EXT, GL_UNSIGNED_BYTE, NULL);
 	}
 
-	glGenBuffers(DS_DC_CNT, buffId_osd);
-	glGenTextures(DS_DC_CNT, textureId_osd);
+	glGenBuffers(DS_DC_CNT, buffId_dc);
+	glGenTextures(DS_DC_CNT, textureId_dc);
 	for(i=0; i<DS_DC_CNT; i++)
 	{
-		glBindTexture(GL_TEXTURE_2D, textureId_osd[i]);
-		assert(glIsTexture(textureId_osd[i]));
+		glBindTexture(GL_TEXTURE_2D, textureId_dc[i]);
+		assert(glIsTexture(textureId_dc[i]));
 		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, buffId_osd[i]);
-		glBufferData(GL_PIXEL_UNPACK_BUFFER, m_imgOsd[i].cols*m_imgOsd[i].rows*m_imgOsd[i].channels(), m_imgOsd[i].data, GL_DYNAMIC_DRAW);//GL_DYNAMIC_COPY);//GL_STATIC_DRAW);//GL_DYNAMIC_DRAW);
-		if(m_imgOsd[i].channels() == 1)
-			glTexImage2D(GL_TEXTURE_2D, 0, m_imgOsd[i].channels(), m_imgOsd[i].cols, m_imgOsd[i].rows,0, GL_RED, GL_UNSIGNED_BYTE, NULL);
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, buffId_dc[i]);
+		glBufferData(GL_PIXEL_UNPACK_BUFFER, m_imgDC[i].cols*m_imgDC[i].rows*m_imgDC[i].channels(), m_imgDC[i].data, GL_DYNAMIC_DRAW);//GL_DYNAMIC_COPY);//GL_STATIC_DRAW);//GL_DYNAMIC_DRAW);
+		if(m_imgDC[i].channels() == 1)
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, m_imgDC[i].cols, m_imgDC[i].rows,0, GL_ALPHA, GL_UNSIGNED_BYTE, NULL);
 		else{
-			glTexImage2D(GL_TEXTURE_2D, 0, m_imgOsd[i].channels(), m_imgOsd[i].cols, m_imgOsd[i].rows,0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, NULL);
+			glTexImage2D(GL_TEXTURE_2D, 0, m_imgDC[i].channels(), m_imgDC[i].cols, m_imgDC[i].rows,0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, NULL);
 			//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_imgOsd[i].cols, m_imgOsd[i].rows,0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, NULL);
 		}
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
@@ -601,6 +612,9 @@ void CRender::gl_init()
 	//glEnable(GL_LINE_SMOOTH);
 	//glHint(GL_LINE_SMOOTH_HINT, GL_DONT_CARE);
 	glClear(GL_COLOR_BUFFER_BIT);
+
+	if(m_initPrm.initfunc != NULL)
+		m_initPrm.initfunc();
 }
 
 void CRender::gl_uninit()
@@ -609,8 +623,8 @@ void CRender::gl_uninit()
 
 	glDeleteTextures(DS_CHAN_MAX, textureId_input);
 	glDeleteBuffers(DS_CHAN_MAX, buffId_input);
-	glDeleteTextures(DS_DC_CNT, textureId_osd);
-	glDeleteBuffers(DS_DC_CNT, buffId_osd);
+	glDeleteTextures(DS_DC_CNT, textureId_dc);
+	glDeleteBuffers(DS_DC_CNT, buffId_dc);
 
 }
 
@@ -628,14 +642,14 @@ int CRender::gl_updateVertex(void)
 		m_glvVerts[winId][4] = -1.0f; m_glvVerts[winId][5] 	= -1.0f;
 		m_glvVerts[winId][6] = 1.0f;  m_glvVerts[winId][7] 	= -1.0f;
 
-		for(i=0; i<4; i++){
+		/*for(i=0; i<4; i++){
 			float x = m_glvVerts[winId][i*2+0];
 			float y = m_glvVerts[winId][i*2+1];
 			//m_glvVerts[winId][i*2+0] = m_renders[winId].transform[0][0] * x + m_renders[winId].transform[0][1] * y + m_renders[winId].transform[0][3];
 			//m_glvVerts[winId][i*2+1] = m_renders[winId].transform[1][0] * x + m_renders[winId].transform[1][1] * y + m_renders[winId].transform[1][3];
 			m_glvVerts[winId][i*2+0] = m_renders[winId].transform.val[0*4+0] * x + m_renders[winId].transform.val[0*4+1] * y + m_renders[winId].transform.val[0*4+3];
 			m_glvVerts[winId][i*2+1] = m_renders[winId].transform.val[1*4+0] * x + m_renders[winId].transform.val[1*4+1] * y + m_renders[winId].transform.val[1*4+3];
-		}
+		}*/
 
 		m_glvTexCoords[winId][0] = 0.0; m_glvTexCoords[winId][1] = 0.0;
 		m_glvTexCoords[winId][2] = 1.0; m_glvTexCoords[winId][3] = 0.0;
@@ -653,58 +667,58 @@ int CRender::gl_updateVertex(void)
 			iRet ++;
 			continue;
 		}
-		if(rc.w == 0 && rc.h == 0){
+		if(rc.width == 0 || rc.height == 0){
 			continue;
 		}
 		m_glvTexCoords[winId][0] = (GLfloat)rc.x/m_videoSize[chId].w; 
 		m_glvTexCoords[winId][1] = (GLfloat)rc.y/m_videoSize[chId].h;
 
-		m_glvTexCoords[winId][2] = (GLfloat)(rc.x+rc.w)/m_videoSize[chId].w;
+		m_glvTexCoords[winId][2] = (GLfloat)(rc.x+rc.width)/m_videoSize[chId].w;
 		m_glvTexCoords[winId][3] = (GLfloat)rc.y/m_videoSize[chId].h;
 
 		m_glvTexCoords[winId][4] = (GLfloat)rc.x/m_videoSize[chId].w;
-		m_glvTexCoords[winId][5] = (GLfloat)(rc.y+rc.h)/m_videoSize[chId].h;
+		m_glvTexCoords[winId][5] = (GLfloat)(rc.y+rc.height)/m_videoSize[chId].h;
 
-		m_glvTexCoords[winId][6] = (GLfloat)(rc.x+rc.w)/m_videoSize[chId].w;
-		m_glvTexCoords[winId][7] = (GLfloat)(rc.y+rc.h)/m_videoSize[chId].h;
+		m_glvTexCoords[winId][6] = (GLfloat)(rc.x+rc.width)/m_videoSize[chId].w;
+		m_glvTexCoords[winId][7] = (GLfloat)(rc.y+rc.height)/m_videoSize[chId].h;
 	}
 
 	return iRet;
 }
 
-void CRender::gl_updateTexOSD()
+void CRender::gl_updateTexDC()
 {
-	if(m_bOsd)
+	if(m_bDC)
 	{
 		for(int i=0; i<DS_DC_CNT; i++)
 		{
-			glBindTexture(GL_TEXTURE_2D, textureId_osd[i]);
+			glBindTexture(GL_TEXTURE_2D, textureId_dc[i]);
 #if 1
-			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, buffId_osd[i]);
+			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, buffId_dc[i]);
 			if(0){
-				glBufferData(GL_PIXEL_UNPACK_BUFFER, m_imgOsd[i].cols*m_imgOsd[i].rows*m_imgOsd[i].channels(), m_imgOsd[i].data, GL_DYNAMIC_DRAW);//GL_DYNAMIC_COPY);//GL_DYNAMIC_COPY);//GL_STATIC_DRAW);//GL_DYNAMIC_DRAW);
+				glBufferData(GL_PIXEL_UNPACK_BUFFER, m_imgDC[i].cols*m_imgDC[i].rows*m_imgDC[i].channels(), m_imgDC[i].data, GL_DYNAMIC_DRAW);//GL_DYNAMIC_COPY);//GL_DYNAMIC_COPY);//GL_STATIC_DRAW);//GL_DYNAMIC_DRAW);
 			}else{
-				unsigned int byteCount = m_imgOsd[i].cols*m_imgOsd[i].rows*m_imgOsd[i].channels();
+				unsigned int byteCount = m_imgDC[i].cols*m_imgDC[i].rows*m_imgDC[i].channels();
 				unsigned char *dev_pbo = NULL;
 				size_t tmpSize;
-				cudaResource_RegisterBuffer(DS_CHAN_MAX+i, buffId_osd[i], byteCount);
+				cudaResource_RegisterBuffer(DS_CHAN_MAX+i, buffId_dc[i], byteCount);
 				cudaResource_mapBuffer(DS_CHAN_MAX+i, (void **)&dev_pbo, &tmpSize);
 				assert(tmpSize == byteCount);
-				cudaMemcpy(dev_pbo, m_imgOsd[i].data, byteCount, cudaMemcpyHostToDevice);
+				cudaMemcpy(dev_pbo, m_imgDC[i].data, byteCount, cudaMemcpyHostToDevice);
 				//cudaDeviceSynchronize();
 				cudaResource_unmapBuffer(DS_CHAN_MAX+i);
 				cudaResource_UnregisterBuffer(DS_CHAN_MAX+i);
 			}
-			if(m_imgOsd[i].channels() == 1)
-				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_imgOsd[i].cols, m_imgOsd[i].rows, GL_RED, GL_UNSIGNED_BYTE, NULL);
+			if(m_imgDC[i].channels() == 1)
+				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_imgDC[i].cols, m_imgDC[i].rows, GL_ALPHA, GL_UNSIGNED_BYTE, NULL);
 			else
-				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_imgOsd[i].cols, m_imgOsd[i].rows, GL_BGRA_EXT, GL_UNSIGNED_BYTE, NULL);
+				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_imgDC[i].cols, m_imgDC[i].rows, GL_BGRA_EXT, GL_UNSIGNED_BYTE, NULL);
 			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 #else
-			if(m_imgOsd[i].channels() == 1)
-				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_imgOsd[i].cols, m_imgOsd[i].rows, GL_RED, GL_UNSIGNED_BYTE, m_imgOsd[i].data);
+			if(m_imgDC[i].channels() == 1)
+				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_imgDC[i].cols, m_imgDC[i].rows, GL_RED, GL_UNSIGNED_BYTE, m_imgDC[i].data);
 			else
-				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_imgOsd[i].cols, m_imgOsd[i].rows, GL_BGRA_EXT, GL_UNSIGNED_BYTE, m_imgOsd[i].data);
+				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_imgDC[i].cols, m_imgDC[i].rows, GL_BGRA_EXT, GL_UNSIGNED_BYTE, m_imgDC[i].data);
 #endif
 		}
 	}
@@ -818,6 +832,96 @@ void CRender::gl_updateTexVideo()
 	}
 }
 
+void CRender::UpdateOSD(void)
+{
+	//cv::line(m_imgOsd[0], cv::Point(300, 300), cv::Point(800, 300), cv::Scalar(255), 2, CV_AA);
+#if(0)
+	{
+		glViewport(0, 0, m_mainWinWidth, m_mainWinHeight);
+		static GLOSD  glosd;
+		GLOSDNumberedBox box(&glosd);
+		box.numbox(128, Rect(1920/2-30, 1080/2-20, 60, 40), Scalar(255, 255, 0, 255), 1);
+		glosd.Draw();
+	}
+#endif
+#if(0)
+	{
+		using namespace cr_osd;
+		static GLOSD  glosd;
+		//static DCOSD  glosd(&m_imgOsd[0]);
+		GLOSDLine line1(&glosd);
+		GLOSDLine line2(&glosd);
+		GLOSDRectangle rectangle1(&glosd);
+		GLOSDPolygon ploygon0(&glosd, 3);
+		GLOSDRect rect0(&glosd);
+		static Point ct(0, 0);
+		static int incx = 1;
+		static int incy = 1;
+		if(ct.x<-(1920/2-100) || ct.x>1920/2-100)
+			incx *= -1;
+		if(ct.y<-(1080/2-100) || ct.y>1080/2-100)
+			incy *= -1;
+		ct.x += incx;
+		ct.y += incy;
+		Point center(1920/2+ct.x, 1080/2+ct.y);
+		line1.line(Point(center.x-100, center.y), Point(center.x+100, center.y), Scalar(0, 255, 0, 255), 2);
+		line2.line(Point(center.x, center.y-100), Point(center.x, center.y+100), Scalar(255, 255, 0, 255), 2);
+		rectangle1.rectangle(Rect(center.x-50, center.y-50, 100, 100), Scalar(255, 0, 0, 255), 1);
+		cv::Point pts[] = {cv::Point(center.x, center.y-80),cv::Point(center.x-75, center.y+38),cv::Point(center.x+75, center.y+38)};
+		ploygon0.polygon(pts, Scalar(0, 0, 255, 255), 3);
+		rect0.rect(Rect(center.x-50, center.y-50, 100, 100), Scalar(28, 28, 28, 255), 6);
+		//GLOSDLine line3(&glosd);
+		//GLOSDLine line4(&glosd);
+		//line3.line(Point(1920/2-50, 1080/2), Point(1920/2+50, 1080/2), Scalar(0, 255, 0, 255), 2);
+		//line4.line(Point(1920/2, 1080/2-50), Point(1920/2, 1080/2+50), Scalar(255, 255, 0, 255), 2);
+		GLOSDCross cross(&glosd);
+		cross.cross(Point(1920/2, 1080/2), Size(50, 50), Scalar(255, 255, 0, 255), 1);
+		GLOSDNumberedBox box(&glosd);
+		box.numbox(128, Rect(1920/2-30, 1080/2-20, 60, 40), Scalar(255, 255, 0, 255), 1);
+		GLOSDTxt txt1(&glosd);
+		GLOSDTxt txt2(&glosd);
+		static wchar_t strTxt1[128] = L"0";
+		txt1.txt(Point(center.x-5, center.y-txt1.m_fontSize+10), strTxt1, Scalar(255, 0, 255, 128));
+		static wchar_t strTxt2[128];
+		swprintf(strTxt2, 128, L"%d, %d", center.x, center.y);
+		txt2.txt(Point(center.x+10, center.y-txt1.m_fontSize-10), strTxt2, Scalar(255, 255, 255, 200));
+		glosd.Draw();
+	};
+#endif
+#if(0)
+	{
+		using namespace cr_osd;
+		glViewport(0, 0, m_mainWinWidth, m_mainWinHeight);
+		glShaderManager.UseStockShader(GLT_SHADER_TEXTURE_SHADED, 0);
+		cv::Size viewSize(m_mainWinWidth, m_mainWinHeight);
+		static GLTXT txt2;
+		wchar_t strTxt[128] = L"常用命令 hello world ! 1234567890";
+		//wchar_t strTxt[256] = L"(hello world ! 1234567890 `!@#$%^&_*__+=-~[]{}|:;',./<>?)";
+		//wchar_t strTxt[256] = L"=_";
+		swprintf(strTxt, 128, L"常用命令 %6.3f hello world !", OSA_getCurTimeInMsec()*0.001f);
+		txt2.putText(viewSize, strTxt, cv::Point(20, 300), cv::Scalar(255, 255, 0, 255));
+		txt2.putText(viewSize, strTxt, cv::Point(20, 350), cv::Scalar(0, 255, 255, 255));
+		txt2.putText(viewSize, strTxt, cv::Point(20, 400), cv::Scalar(255, 0, 255, 255));
+		txt2.putText(viewSize, strTxt, cv::Point(20, 450), cv::Scalar(255, 255, 255, 255));
+		txt2.putText(viewSize, strTxt, cv::Point(20, 500), cv::Scalar(0, 0, 0, 255));
+	}
+#endif
+#if(0)
+	{
+		using namespace cr_osd;
+		static DCTXT txt2;
+		//wchar_t strTxt[128] = L"常用命令 hello world ! 1234567890";
+		wchar_t strTxt[256] = L"(常用命令 hello world ! 1234567890 `!@#$%^&_*__+=-~[]{}|:;',./<>?)";
+		//wchar_t strTxt[256] = L"=_";
+		//swprintf(strTxt, 128, L"常用命令 hello world !%6.3f", OSA_getCurTimeInMsec()*0.001f);
+		txt2.putText(m_imgDC[0], strTxt, cv::Point(20, 300), cv::Scalar(255, 255, 0, 255));
+		txt2.putText(m_imgDC[0], strTxt, cv::Point(20, 350), cv::Scalar(0, 255, 255, 255));
+		txt2.putText(m_imgDC[0], strTxt, cv::Point(20, 400), cv::Scalar(255, 0, 255, 255));
+		txt2.putText(m_imgDC[0], strTxt, cv::Point(20, 450), cv::Scalar(255, 255, 255, 255));
+		txt2.putText(m_imgDC[0], strTxt, cv::Point(20, 500), cv::Scalar(0, 0, 0, 255));
+	}
+#endif
+}
 
 void CRender::gl_display(void)
 {
@@ -841,19 +945,8 @@ void CRender::gl_display(void)
 	tstart = tStamp[0];
 	if(tend == 0ul)
 		tend = tstart;
-
-	if(m_initPrm.renderfunc != NULL)
-		m_initPrm.renderfunc();
-	tStamp[1] = getTickCount();
-
-	gl_updateTexVideo();
-	tStamp[2] = getTickCount();
-
-	gl_updateTexOSD();
-	tStamp[3] = getTickCount();
-
 #if (!RENDMOD_TIME_ON)
-	if(m_initPrm.renderfunc == NULL)
+	//if(m_initPrm.renderfunc == NULL)
 	{
 		double wms = m_interval*0.000001 - m_telapse;
 		if(m_waitSync && wms>2.0){
@@ -866,6 +959,18 @@ void CRender::gl_display(void)
 		}
 	}
 #endif
+	tStamp[1] = getTickCount();
+
+	if(m_initPrm.renderfunc != NULL)
+		m_initPrm.renderfunc(RUN_ENTER, 0, 0);
+	tStamp[2] = getTickCount();
+
+	gl_updateTexVideo();
+	tStamp[3] = getTickCount();
+
+	if(m_initPrm.renderfunc != NULL)
+		m_initPrm.renderfunc(RUN_DC, 0, (int)m_bDC);
+	gl_updateTexDC();
 	tStamp[4] = getTickCount();
 
 	if(m_cumutex != NULL)
@@ -886,7 +991,8 @@ void CRender::gl_display(void)
 			glUseProgram(m_glProgram[1]);
 			GLint Uniform_tex_in = glGetUniformLocation(m_glProgram[1], "tex_in");
 			GLint Uniform_mvp = glGetUniformLocation(m_glProgram[1], "mvpMatrix");
-			glUniformMatrix4fv(Uniform_mvp, 1, GL_FALSE, m_glmat44fTrans[chId].val);
+			GLMatx44f mTrans = m_glmat44fTrans[chId]*m_renders[winId].transform;
+			glUniformMatrix4fv(Uniform_mvp, 1, GL_FALSE, mTrans.val);
 			glUniform1i(Uniform_tex_in, 0);
 			glActiveTexture(GL_TEXTURE0);
 			glBindTexture(GL_TEXTURE_2D, textureId_input[chId]);
@@ -897,13 +1003,13 @@ void CRender::gl_display(void)
 			//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 			glViewport(m_renders[winId].displayrect.x,
 					m_renders[winId].displayrect.y,
-					m_renders[winId].displayrect.w, m_renders[winId].displayrect.h);
+					m_renders[winId].displayrect.width, m_renders[winId].displayrect.height);
 			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 			glUseProgram(0);
 
 			int blend_chId = m_blendMap[chId];
 			if(blend_chId>=0 && blend_chId<DS_CHAN_MAX){
-				GLMatx44f mTrans = m_glmat44fBlend[chId*DS_CHAN_MAX+blend_chId]*m_glmat44fTrans[chId];
+				mTrans = m_glmat44fBlend[chId*DS_CHAN_MAX+blend_chId]*m_glmat44fTrans[chId]*m_renders[winId].transform;
 				int maskId = m_maskMap[blend_chId];
 				if(maskId < 0 || maskId >= DS_CHAN_MAX){
 					if(m_videoSize[blend_chId].c == 1){
@@ -950,21 +1056,25 @@ void CRender::gl_display(void)
 				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 				glViewport(m_renders[winId].displayrect.x,
 						m_renders[winId].displayrect.y,
-						m_renders[winId].displayrect.w, m_renders[winId].displayrect.h);
+						m_renders[winId].displayrect.width, m_renders[winId].displayrect.height);
 				glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 				glDisable(GL_MULTISAMPLE);
 				glDisable(GL_BLEND);
 				glUseProgram(0);
 			}
+
+			if(m_initPrm.renderfunc != NULL)
+				m_initPrm.renderfunc(RUN_WIN, winId, chId);
 		}
 		OSA_mutexUnlock(&m_mutex);
 	}
 
-	if(m_bOsd)
+	if(m_bDC)
 	{
+		glViewport(0, 0, m_mainWinWidth, m_mainWinHeight);
 		for(int i=0; i<DS_DC_CNT; i++)
 		{
-			if(m_imgOsd[i].channels() == 1){
+			if(m_imgDC[i].channels() == 1){
 				glProg = m_glProgram[5];
 				glUseProgram(glProg);
 				GLint Uniform_tex_in = glGetUniformLocation(glProg, "tex_in");
@@ -972,10 +1082,10 @@ void CRender::gl_display(void)
 				glUniform1i(Uniform_tex_in, 0);
 				glActiveTexture(GL_TEXTURE0);
 				GLfloat vColor[4];
-				vColor[0] = m_osdColor.val[0]/255.0;
-				vColor[1] = m_osdColor.val[1]/255.0;
-				vColor[2] = m_osdColor.val[2]/255.0;
-				vColor[3] = m_osdColor.val[3]/255.0;
+				vColor[0] = m_dcColor.val[0]/255.0;
+				vColor[1] = m_dcColor.val[1]/255.0;
+				vColor[2] = m_dcColor.val[2]/255.0;
+				vColor[3] = m_dcColor.val[3]/255.0;
 				glUniform4fv(Uniform_vcolor, 1, vColor);
 			}else{
 				glProg = m_glProgram[0];
@@ -993,36 +1103,21 @@ void CRender::gl_display(void)
 			//glEnable(GL_MULTISAMPLE);
 			glEnable(GL_BLEND);
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			glBindTexture(GL_TEXTURE_2D, textureId_osd[i]);
-			glViewport(0, 0, m_mainWinWidth, m_mainWinHeight);
+			glBindTexture(GL_TEXTURE_2D, textureId_dc[i]);
 			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 			//glDisable(GL_MULTISAMPLE);
 			glDisable(GL_BLEND);
 			glUseProgram(0);
 		}
 	}
-	tStamp[5] = getTickCount();
 	//glValidateProgram(m_glProgram);
 
-#if(0)
-	{
-		GLOSD  glosd;
-		GLOSDLine line1(&glosd);
-		GLOSDLine line2(&glosd);
-		static Point ct(0, 0);
-		static int incx = 4;
-		static int incy = 4;
-		if(ct.x<-(1920/2-100) || ct.x>1920/2-100)
-			incx *= -1;
-		if(ct.y<-(1080/2-100) || ct.y>1080/2-100)
-			incy *= -1;
-		ct.x += incx;
-		ct.y += incy;
-		line1.line(Point(1920/2+ct.x-100, 1080/2+ct.y), Point(1920/2+ct.x+100, 1080/2+ct.y), Scalar(0, 255, 0, 255), 2);
-		line2.line(Point(1920/2+ct.x, 1080/2+ct.y-100), Point(1920/2+ct.x, 1080/2+ct.y+100), Scalar(255, 255, 0, 255), 8);
-		glosd.Draw();
-	}
-#endif
+	UpdateOSD();
+
+	if(m_initPrm.renderfunc != NULL)
+		m_initPrm.renderfunc(RUN_SWAP, 0, 0);
+
+	tStamp[5] = getTickCount();
 
 	m_waitSync = true;
 	int64 tcur = tStamp[5];
@@ -1046,6 +1141,8 @@ void CRender::gl_display(void)
 #endif
 	}
 	glutSwapBuffers();
+	if(m_initPrm.renderfunc != NULL)
+		m_initPrm.renderfunc(RUN_LEAVE, 0, 0);
 	tStamp[6] = getTickCount();
 	tend = tStamp[6];
 	float renderIntv = (tend - m_tmRender)/getTickFrequency();
@@ -1073,7 +1170,7 @@ void CRender::gl_display(void)
 #if 1
 	static unsigned long rCount = 0;
 	if(rCount%(m_initPrm.disFPS*100) == 0){
-		printf("\r\n[%d] %.4f (cu%.4f,tv%.4f,to%.4f,ws%.4f,rd%.4f,wp%.4f) %.4f",
+		printf("\r\n[%d] %.4f (ws%.4f,cu%.4f,tv%.4f,to%.4f,rd%.4f,wp%.4f) %.4f",
 			OSA_getCurTimeInMsec(),renderIntv,
 			(tStamp[1]-tStamp[0])/getTickFrequency(),
 			(tStamp[2]-tStamp[1])/getTickFrequency(),
@@ -1142,7 +1239,7 @@ static const char *szAlphaTextureShaderFP = ""
 		"{"
 		"	vec4  vAlpha;"
 		"	vAlpha = texture(tex_in, vVaryingTexCoords);"
-		"	vColor.a = vAlpha.r;"
+		"	vColor.a = vAlpha.a;"
 		"	gl_FragColor = vColor;"
 		"}";
 static const char *szBlendMaskTextureShaderFP = ""

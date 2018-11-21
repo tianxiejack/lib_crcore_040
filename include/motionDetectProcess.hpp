@@ -16,6 +16,7 @@ typedef std::vector<TRK_RECT_INFO> vMDTarget;
 class CMotionDetectProcess : public CProcessBase
 {
 	CMvDectInterface *m_inter;
+	Rect m_roi;
 	WARN_MODE m_curMode;
 	int m_nCount;
 	int m_fovId;
@@ -44,7 +45,7 @@ public :
 	virtual ~CMotionDetectProcess();
 	virtual int process(int chId, int fovId, int ezoomx, Mat frame);
 	virtual int dynamic_config(int type, int iPrm, void* pPrm = NULL, int prmSize = 0);
-	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color, int thickness);
+	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd);
 
 	bool m_bEnable;
 	int m_curChId;

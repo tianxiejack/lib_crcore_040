@@ -164,9 +164,9 @@ void CBkgdDetectProcess::detect(Mat frame, int chId)
 	//		whitethr, whiteout, m_thr1Min, m_thr1Max);
 }
 
-int CBkgdDetectProcess::OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color, int thickness)
+int CBkgdDetectProcess::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd)
 {
-	int ret = CProcessBase::OnOSD(chId, fovId, ezoomx, dc, color, thickness);
+	int ret = CProcessBase::OnOSD(chId, fovId, ezoomx, dc, osd);
 }
 
 int CBkgdDetectProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSize)

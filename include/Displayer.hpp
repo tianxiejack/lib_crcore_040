@@ -7,7 +7,6 @@
 
 #include <cuda.h>
 #include "cuda_runtime_api.h"
-
 #include "osa.h"
 #include "osa_thr.h"
 #include "osa_buf.h"
@@ -27,12 +26,7 @@ typedef struct _ds_size{
 	int c;
 }DS_Size;
 
-typedef struct _ds_rect{
-	int x;
-	int y;
-	int w;
-	int h;
-}DS_Rect;
+typedef cv::Rect DS_Rect;
 
 typedef struct _ds_render
 {
@@ -73,7 +67,8 @@ typedef struct _ds_init_param{
 	void (*timerfunc)(int value);
 	void (*idlefunc)(void);
 	void (*closefunc)(void);
-	void (*renderfunc)(void);
+	void (*renderfunc)(int stepIdx, int stepSub, int context);
+	void (*initfunc)(void);
 	int timerfunc_value;//context
 }DS_InitPrm;
 
@@ -101,8 +96,17 @@ public:
 		DS_CFG_ViewTransMat,
 		DS_CFG_BlendTransMat,
 		DS_CFG_BlendPrm,
+		DS_CFG_ViewPos,
 		DS_CFG_Max
 	}DS_CFG;
+
+	enum{
+		RUN_ENTER = 0,
+		RUN_DC,
+		RUN_WIN,
+		RUN_SWAP,
+		RUN_LEAVE
+	};
 
 	int dynamic_config(DS_CFG type, int iPrm, void* pPrm);
 	int get_videoSize(int chId, DS_Size &size);
@@ -113,12 +117,13 @@ public:
 	int m_mainWinHeight;
 	bool m_bRun;
 	bool m_bFullScreen;
-	bool m_bOsd;
-	Mat m_imgOsd[DS_DC_CNT];
-	CvScalar m_osdColor;
+	bool m_bDC;
+	Mat m_imgDC[DS_DC_CNT];
+	cv::Scalar m_dcColor;
+	//int m_thickness;
 	DS_Size m_videoSize[DS_CHAN_MAX];
 	GLuint buffId_input[DS_CHAN_MAX];
-	GLuint buffId_osd[DS_DC_CNT];
+	GLuint buffId_dc[DS_DC_CNT];
 	OSA_BufHndl m_bufQue[DS_CHAN_MAX];
 	OSA_MutexHndl *m_cumutex;
 	bool m_timerRun;
@@ -148,14 +153,14 @@ protected:
 	GLMatx44f m_glmat44fBlend[DS_CHAN_MAX*DS_CHAN_MAX];
 	DS_BlendPrm m_glBlendPrm[DS_CHAN_MAX*DS_CHAN_MAX];
 	GLuint textureId_input[DS_CHAN_MAX];
-	GLuint textureId_osd[DS_DC_CNT];
+	GLuint textureId_dc[DS_DC_CNT];
 
 	int gl_create();
 	void gl_destroy();
 	void gl_init();
 	void gl_uninit();
 	void gl_display();
-	void gl_updateTexOSD();
+	void gl_updateTexDC();
 	void gl_updateTexVideo();
 	int gl_updateVertex();
 	int gl_loadProgram();
@@ -164,6 +169,7 @@ protected:
 	bool gltLoadShaderFile(const char *szFile, GLuint shader);
 	GLuint gltLoadShaderPairWithAttributes(const char *szVertexProg, const char *szFragmentProg, ...);
 
+	void UpdateOSD(void);
 
 private:
 	OSA_MutexHndl m_mutex;

@@ -32,7 +32,6 @@ static inline void my_rotate(GLfloat result[16], float theta)
 CGeneralProc::CGeneralProc(OSA_SemHndl *notifySem, IProcess *proc)
 	:CTrackerProc(notifySem, proc),m_bHide(false)
 {
-	memset(units, 0, sizeof(units));
 }
 
 CGeneralProc::~CGeneralProc()
@@ -106,18 +105,11 @@ __inline__ UTC_RECT_float tRectScale(UTC_RECT_float rc, cv::Size orgSize, cv::Si
 	return ret;
 }
 
-int CGeneralProc::OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color, int thickness)
+int CGeneralProc::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd)
 {
-	int ret = CProcessBase::OnOSD(chId, fovId, ezoomx, dc, color, thickness);
+	int ret = CProcessBase::OnOSD(chId, fovId, ezoomx, dc, osd);
 	float scalex = dc.cols/1920.0;
 	float scaley = dc.rows/1080.0;
-
-	if(units[chId][U_WIN].bHasDraw)
-		osd_cvdraw_trk(dc, units[chId][U_WIN].rc, units[chId][U_WIN].iStyle, units[chId][U_WIN].thickness, false);
-	units[chId][U_WIN].bHasDraw = false;
-	if(units[chId][U_AXIS].bHasDraw)
-		osd_cvdraw_cross(dc, units[chId][U_AXIS].pos.x, units[chId][U_AXIS].pos.y, scalex, scaley, units[chId][U_AXIS].thickness, false);
-	units[chId][U_AXIS].bHasDraw = false;
 
 	int curChId = m_curChId;
 	bool curTrack = m_bTrack;
@@ -130,205 +122,61 @@ int CGeneralProc::OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color,
 	cv::Point axis((int)(tmpPoint.x+0.5), (int)(tmpPoint.y+0.5));
 	UTC_RECT_float curRC = tRectScale(m_rcTrk, m_imgSize[chId], cv::Size(dc.cols, dc.rows));//m_rcTrk;//tRectScale(m_rcTrack, m_imgSize[chId], (float)m_curEZoomx[chId]);
 
-	units[chId][U_AXIS].bNeedDraw = (curChId == chId && !m_bHide);
-	if(units[chId][U_AXIS].bNeedDraw){
-		units[chId][U_AXIS].pos = axis;
-		units[chId][U_AXIS].thickness = thickness;
-		osd_cvdraw_cross(dc, units[chId][U_AXIS].pos.x, units[chId][U_AXIS].pos.y, scalex, scaley, units[chId][U_AXIS].thickness, true);
-		units[chId][U_AXIS].bHasDraw = true;
+	if((curChId == chId && !m_bHide)){
+		osd->cross(axis, cv::Size2f(scalex, scaley), 0);
 	}
-	units[chId][U_WIN].bNeedDraw = (curChId == chId && curTrack && !m_bHide);
-	if(units[chId][U_WIN].bNeedDraw){
-		units[chId][U_WIN].rc = curRC;
-		units[chId][U_WIN].iStyle = curStat;
-		units[chId][U_WIN].thickness = thickness;
-		osd_cvdraw_trk(dc, units[chId][U_WIN].rc, units[chId][U_WIN].iStyle, units[chId][U_WIN].thickness, true);
-		units[chId][U_WIN].bHasDraw = true;
+	if((curChId == chId && curTrack && !m_bHide)){
+		osd_cvdraw_trk(dc, osd, curRC, curStat, true);
 	}
+
 	return ret;
 }
 
-void CGeneralProc::osd_cvdraw_cross(Mat &dc, int ix, int iy, float scalex, float scaley, int thickness, bool bShow)
-{
-	Point pt1,pt2,center;
-	CvScalar lineColor;
-	UInt32 width=0, height=0, widthGap=0, heightGap=0;
-	int linePixels = thickness;
-
-	if(ix == 0 && iy == 0)
-		return ;
-
-	width = 120*scalex;
-	height = 100*scaley;
-	widthGap = 40*scalex;
-	heightGap = 30*scaley;
-
-	center.x = ix;
-	center.y = iy;
-
-	if(bShow)
-	{
-		lineColor = m_color;
-	}
-	else
-	{
-		lineColor = cvScalar(0);
-	}
-
-	if(0)
-	{
-		// only cross
-		pt1.x = center.x-width/2;
-		pt1.y = center.y;
-		pt2.x = center.x+width/2;
-		pt2.y = center.y;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
-		pt1.y += linePixels;
-		pt2.y += linePixels;
-		//line(dc, pt1, pt2, lineColor2, linePixels, 8);
-
-		pt1.x = center.x;
-		pt1.y = center.y-height/2;
-		pt2.x = center.x;
-		pt2.y = center.y+height/2;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
-		pt1.x += linePixels;
-		pt2.x += linePixels;
-		//line(dc, pt1, pt2, lineColor2, linePixels, 8);
-	}
-	else
-	{
-		// with center point
-		//left horizonal line
-		pt1.x = center.x-width/2;
-		pt1.y = center.y;
-		pt2.x = center.x-widthGap/2;
-		pt2.y = center.y;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
-		pt1.y += linePixels+1;
-		pt2.y += linePixels+1;
-		//line(dc, pt1, pt2, lineColor2, linePixels, 8);
-		//middle horizonal line
-		pt1.x = center.x-1;
-		pt1.y = center.y;
-		pt2.x = center.x+linePixels+linePixels-1;
-		pt2.y = center.y;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
-		pt1.y += linePixels+1;
-		pt2.y += linePixels+1;
-		//line(dc, pt1, pt2, lineColor2, linePixels, 8);
-		//right horizonal line
-		pt1.x = center.x+width/2;
-		pt1.y = center.y;
-		pt2.x = center.x+widthGap/2;
-		pt2.y = center.y;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
-		pt1.y += linePixels+1;
-		pt2.y += linePixels+1;
-		//line(dc, pt1, pt2, lineColor2, linePixels, 8);
-		//top vertical line
-		pt1.x = center.x;
-		pt1.y = center.y-height/2;
-		pt2.x = center.x;
-		pt2.y = center.y-heightGap/2;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
-		pt1.x += linePixels+1;
-		pt2.x += linePixels+1;
-		//line(dc, pt1, pt2, lineColor2, linePixels, 8);
-		//bottom vertical line
-		pt1.x = center.x;
-		pt1.y = center.y+height/2;
-		pt2.x = center.x;
-		pt2.y = center.y+heightGap/2;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
-		pt1.x += linePixels+1;
-		pt2.x += linePixels+1;
-		//line(dc, pt1, pt2, lineColor2, linePixels, 8);
-	}
-}
-
-void CGeneralProc::osd_cvdraw_trk(Mat &dc, UTC_RECT_float rcTrack, int iStat, int thickness, bool bShow)
+void CGeneralProc::osd_cvdraw_trk(Mat &dc, IDirectOSD *osd, UTC_RECT_float rcTrack, int iStat, bool bShow)
 {
 	UTC_RECT_float rcResult = rcTrack;
-    CvScalar lineColor;
-	Point pt1,pt2;
-	int linePixels = thickness;
 
     if(rcTrack.width == 0 || rcTrack.height == 0)
         return ;
 
-	if(bShow)
-		lineColor = m_color;
-	else
-		lineColor = cv::Scalar(0);//GetcvColour(ecolor_Default);
-
-	if(bShow == false)
-	{
-		rectangle( dc,
-			Point( rcResult.x, rcResult.y ),
-			Point( rcResult.x+rcResult.width, rcResult.y+rcResult.height),
-			lineColor, linePixels, 8 );
-		return ;
-	}
-
-	if(iStat == 1 || iStat == 0)	// trk
-		rectangle( dc,
-			Point( rcResult.x, rcResult.y ),
-			Point( rcResult.x+rcResult.width, rcResult.y+rcResult.height),
-			lineColor, linePixels, 8 );
-	else					// assi
-	{
-		//zuo shang jiao 
-		pt1.x = rcResult.x;
-		pt1.y = rcResult.y;
-		pt2.x = rcResult.x+rcResult.width/4;
-		pt2.y = rcResult.y;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
-
-		pt1.x = rcResult.x;
-		pt1.y = rcResult.y;
-		pt2.x = rcResult.x;
-		pt2.y = rcResult.y+rcResult.height/4;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
-
-		//you shang jiao
-		pt1.x = rcResult.x+rcResult.width*3/4;
-		pt1.y = rcResult.y;
-		pt2.x = rcResult.x+rcResult.width;
-		pt2.y = rcResult.y;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
-
-		pt1.x = rcResult.x+rcResult.width;
-		pt1.y = rcResult.y;
-		pt2.x = rcResult.x+rcResult.width;
-		pt2.y = rcResult.y+rcResult.height/4;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
-
-		//zuo xia jiao
-		pt1.x = rcResult.x;
-		pt1.y = rcResult.y+rcResult.height*3/4;
-		pt2.x = rcResult.x;
-		pt2.y = rcResult.y+rcResult.height;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
-
-		pt1.x = rcResult.x;
-		pt1.y = rcResult.y+rcResult.height;
-		pt2.x = rcResult.x+rcResult.width/4;
-		pt2.y = rcResult.y+rcResult.height;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
-
-		//you xia jiao 
-		pt1.x = rcResult.x+rcResult.width*3/4;
-		pt1.y = rcResult.y+rcResult.height;
-		pt2.x = rcResult.x+rcResult.width;
-		pt2.y = rcResult.y+rcResult.height;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
-
-		pt1.x = rcResult.x+rcResult.width;
-		pt1.y = rcResult.y+rcResult.height*3/4;
-		pt2.x = rcResult.x+rcResult.width;
-		pt2.y = rcResult.y+rcResult.height;
-		line(dc, pt1, pt2, lineColor, linePixels, 8);
+	if(iStat == 0 || iStat == 1){
+		osd->rectangle(cv::Rect(rcResult.x, rcResult.y, rcResult.width, rcResult.height), !bShow);
+	}else{
+		std::vector<cv::Point> vPts;
+		vPts.resize(16);
+		vPts[0].x = rcResult.x;
+		vPts[0].y = rcResult.y;
+		vPts[1].x = rcResult.x+rcResult.width/4;
+		vPts[1].y = rcResult.y;
+		vPts[2].x = rcResult.x;
+		vPts[2].y = rcResult.y;
+		vPts[3].x = rcResult.x;
+		vPts[3].y = rcResult.y+rcResult.height/4;
+		vPts[4].x = rcResult.x+rcResult.width*3/4;
+		vPts[4].y = rcResult.y;
+		vPts[5].x = rcResult.x+rcResult.width;
+		vPts[5].y = rcResult.y;
+		vPts[6].x = rcResult.x+rcResult.width;
+		vPts[6].y = rcResult.y;
+		vPts[7].x = rcResult.x+rcResult.width;
+		vPts[7].y = rcResult.y+rcResult.height/4;
+		vPts[8].x = rcResult.x;
+		vPts[8].y = rcResult.y+rcResult.height*3/4;
+		vPts[9].x = rcResult.x;
+		vPts[9].y = rcResult.y+rcResult.height;
+		vPts[10].x = rcResult.x;
+		vPts[10].y = rcResult.y+rcResult.height;
+		vPts[11].x = rcResult.x+rcResult.width/4;
+		vPts[11].y = rcResult.y+rcResult.height;
+		vPts[12].x = rcResult.x+rcResult.width*3/4;
+		vPts[12].y = rcResult.y+rcResult.height;
+		vPts[13].x = rcResult.x+rcResult.width;
+		vPts[13].y = rcResult.y+rcResult.height;
+		vPts[14].x = rcResult.x+rcResult.width;
+		vPts[14].y = rcResult.y+rcResult.height*3/4;
+		vPts[15].x = rcResult.x+rcResult.width;
+		vPts[15].y = rcResult.y+rcResult.height;
+		osd->line(vPts, !bShow);
 	}
 }
 

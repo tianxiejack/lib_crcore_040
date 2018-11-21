@@ -12,10 +12,6 @@ CBlobDetectProcess::CBlobDetectProcess(IProcess *proc)
 	for(int chId=0; chId<MAX_CHAN; chId++){
 		m_imgSize[chId].width = 1920;
 		m_imgSize[chId].height = 1080;
-		for(int i=0; i<MAX_BLOB_TGT_NUM; i++){
-			m_units[chId][i].thickness = 2;
-			m_units[chId][i].lineType = 8;
-		}
 	}
 	m_threshold = 0.1;
 	m_dSize.width = 1920/2;
@@ -276,39 +272,23 @@ __inline__ void draw_center(Mat dc, Point center, int length, CvScalar color, in
 	line(dc, pt1, pt2, color, thickness, CV_AA, 0 );
 }
 
-int CBlobDetectProcess::OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color, int thickness)
+int CBlobDetectProcess::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd)
 {
-	int ret = CProcessBase::OnOSD(chId, fovId, ezoomx, dc, color, thickness);
+	int ret = CProcessBase::OnOSD(chId, fovId, ezoomx, dc, osd);
 
 	float scalex = dc.cols/1920.0;
 	float scaley = dc.rows/1080.0;
 
 	OSA_mutexLock(&m_mutexlock);
-	for(int i=0; i<MAX_BLOB_TGT_NUM; i++){
-		if(m_units[chId][i].bHasDraw){
-			ellipse(dc, m_units[chId][i].drawRRC, cvScalar(0), m_units[chId][i].thickness+1, CV_AA);
-			draw_center(dc, m_units[chId][i].drawRRC.center, 4, cvScalar(0), m_units[chId][i].thickness+1);
-			putText(dc, m_units[chId][i].txt, m_units[chId][i].txtPos, CV_FONT_HERSHEY_COMPLEX, scalex,cvScalar(0));
-			m_units[chId][i].bHasDraw = false;
-		}
-		if(m_units[chId][i].bNeedDraw){
-			RotatedRect rc = m_units[chId][i].orgRRC;
-			if(m_imgSize[chId].width != dc.cols && m_imgSize[chId].height != dc.rows)
-				rc = tRectScale(rc, m_imgSize[chId], cv::Size(dc.cols, dc.rows));
-			m_units[chId][i].drawRRC = rc;
-
-			m_units[chId][i].thickness = thickness;
-			ellipse(dc, m_units[chId][i].drawRRC, color, m_units[chId][i].thickness, CV_AA);
-			draw_center(dc, m_units[chId][i].drawRRC.center, 4, color, m_units[chId][i].thickness);
-			m_units[chId][i].txtPos = Point(m_units[chId][i].drawRRC.center.x+20,
-					m_units[chId][i].drawRRC.center.y-1*(28));
-
-			if(m_nCount>1){
-				sprintf(m_units[chId][i].txt, "%d", m_units[chId][i].orgValue+1);
-				putText(dc, m_units[chId][i].txt, m_units[chId][i].txtPos, CV_FONT_HERSHEY_COMPLEX, scalex,color);
+	if(m_curChId == chId){
+		for(int i=0; i<MAX_BLOB_TGT_NUM; i++){
+			if(m_units[chId][i].bNeedDraw){
+				RotatedRect rc = m_units[chId][i].orgRRC;
+				if(m_imgSize[chId].width != dc.cols && m_imgSize[chId].height != dc.rows)
+					rc = tRectScale(rc, m_imgSize[chId], cv::Size(dc.cols, dc.rows));
+				m_units[chId][i].drawRRC = rc;
+				osd->ellipse(m_units[chId][i].drawRRC, m_units[chId][i].orgValue+1, (m_nCount>1) ? 6 : 2);
 			}
-
-			m_units[chId][i].bHasDraw = true;
 		}
 	}
 	OSA_mutexUnlock(&m_mutexlock);

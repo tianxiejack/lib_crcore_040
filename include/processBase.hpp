@@ -12,6 +12,7 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv/cv.hpp>
 #include <opencv2/opencv.hpp>
+#include "directOsd.hpp"
 #include "osa.h"
 #include "osa_thr.h"
 #include "osa_buf.h"
@@ -35,17 +36,11 @@ using namespace cv;
 #define VP_CFG_BLOB_BASE	(0x5000 + VP_CFG_BASE)
 
 typedef struct _OSD_unit_info{
+	bool bNeedDraw;
 	int orgValue;
 	cv::Point orgPos;
 	cv::Rect  orgRC;
 	cv::RotatedRect orgRRC;
-	bool bHasDraw;
-	bool bNeedDraw;
-	int iStyle;
-	int thickness;
-	int lineType;
-	cv::Point txtPos;
-	char txt[128];
 	cv::Rect  drawRC;
 	cv::RotatedRect drawRRC;
 }OSDU_Info;
@@ -55,7 +50,7 @@ class IProcess
 public:
 	virtual int process(int chId, int fovId, int ezoomx, Mat frame) = 0;
 	virtual int dynamic_config(int type, int iPrm, void* pPrm = NULL, int prmSize = 0) = 0;
-	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color, int thickness) = 0;
+	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd) = 0;
 };
 
 class CProcessBase : public IProcess
@@ -89,10 +84,10 @@ public:
 			return m_proc->dynamic_config(type, iPrm, pPrm, prmSize);
 		return 0;
 	};
-	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color, int thickness)
+	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd)
 	{
 		if(m_proc != NULL)
-			return m_proc->OnOSD(chId, fovId, ezoomx, dc, color, thickness);
+			return m_proc->OnOSD(chId, fovId, ezoomx, dc, osd);
 	}
 };
 

@@ -12,10 +12,6 @@ CMotionDetectProcess::CMotionDetectProcess(IProcess *proc)
 	for(int chId=0; chId<MAX_CHAN; chId++){
 		m_imgSize[chId].width = 1920;
 		m_imgSize[chId].height = 1080;
-		for(int i=0; i<MAX_MOTION_TGT_NUM; i++){
-			m_units[chId][i].thickness = 2;
-			m_units[chId][i].lineType = 8;
-		}
 	}
 	m_inter = MvDetector_Create();
 	OSA_assert(m_inter != NULL);
@@ -25,6 +21,7 @@ CMotionDetectProcess::CMotionDetectProcess(IProcess *proc)
 	m_threshold = 20;
 	ReadCfgFile();
 	m_inter->init(notifyHdl, this);
+	m_roi = Rect(300, 100, 1920-300, 1080-200);
 }
 
 CMotionDetectProcess::~CMotionDetectProcess()
@@ -115,12 +112,15 @@ int CMotionDetectProcess::process(int chId, int fovId, int ezoomx, Mat frame)
 
 	OSA_assert(m_curChId == chId);
 	{
-		if(m_cnt[chId] == 0){
+		if(m_cnt[chId] == 20){
 			m_inter->setUpdateFactor(1, chId);
 		}
-		if(m_cnt[chId] == 100)
+		if(m_cnt[chId] == 220)
 			m_inter->setUpdateFactor(16, chId);
 		m_cnt[chId]++;
+
+		m_roi = Rect(0, 0, frame.cols, frame.rows);
+
 		if(m_ezoomx<=1){
 			//OSA_printf("%s %d: frame(%dx%d)", __func__, __LINE__, frame.cols, frame.rows);
 			/*static int Once = 0;
@@ -130,7 +130,17 @@ int CMotionDetectProcess::process(int chId, int fovId, int ezoomx, Mat frame)
 				frame.copyTo(cFrame);
 			}
 			cFrame.copyTo(frame);*/
-			m_inter->setFrame(frame, chId, m_accuracy, m_inputMinArea, m_inputMaxArea, m_threshold);
+			if(0){
+				static float fcnt = 0.0;
+				fcnt += 0.12;
+				if(fcnt>300-1 || m_cnt[chId]==1)
+					fcnt = 0.0;
+				m_roi = Rect(300-fcnt, 100, frame.cols-600, frame.rows-200);
+				Mat frameROI(frame, m_roi);
+				m_inter->setFrame(frameROI, chId, m_accuracy, m_inputMinArea, m_inputMaxArea, m_threshold);
+			}else{
+				m_inter->setFrame(frame, chId, m_accuracy, m_inputMinArea, m_inputMaxArea, m_threshold);
+			}
 		}else{
 			//int64 tks = getTickCount();
 			cv::Mat rsMat = cv::Mat(frame.rows, frame.cols, CV_8UC1);
@@ -149,7 +159,7 @@ int CMotionDetectProcess::process(int chId, int fovId, int ezoomx, Mat frame)
 			}
 			m_inter->setFrame(rsMat, chId, m_accuracy, m_inputMinArea, m_inputMaxArea, m_threshold);
 		}
-		if(!m_bOpen){
+		if(!m_bOpen && m_cnt[chId]>1){
 			m_inter->mvOpen(m_curChId);
 			m_bOpen = true;
 		}
@@ -170,13 +180,13 @@ void CMotionDetectProcess::update(int chId)
 	if(!m_bHide){
 		OSA_mutexLock(&m_mutexlock);
 		int i=0;
-		if(m_bEnable && m_bOpen && m_cnt[chId]>25 && m_curChId == chId){
+		if(m_bEnable && m_bOpen && m_cnt[chId]>20 && m_curChId == chId){
 			for(i=0; i<m_targets[chId].size(); i++)
 			{
 				m_units[chId][i].bNeedDraw = true;
 				m_units[chId][i].orgPos = Point(m_targets[chId][i].targetRect.x + m_targets[chId][i].targetRect.width/2, m_targets[chId][i].targetRect.y + m_targets[chId][i].targetRect.height/2);
 				m_units[chId][i].orgRC = m_targets[chId][i].targetRect;
-				m_units[chId][i].orgValue = i;
+				m_units[chId][i].orgValue = m_targets[chId][i].index;
 			}
 		}
 		for(;i<MAX_MOTION_TGT_NUM; i++)
@@ -185,9 +195,9 @@ void CMotionDetectProcess::update(int chId)
 	}
 }
 
-int CMotionDetectProcess::OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScalar color, int thickness)
+int CMotionDetectProcess::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd)
 {
-	int ret = CProcessBase::OnOSD(chId, fovId, ezoomx, dc, color, thickness);
+	int ret = CProcessBase::OnOSD(chId, fovId, ezoomx, dc, osd);
 
 
 	/*static bool bFlag = false;
@@ -206,28 +216,19 @@ int CMotionDetectProcess::OnOSD(int chId, int fovId, int ezoomx, Mat dc, CvScala
 	bool bFixSize = false;
 
 	OSA_mutexLock(&m_mutexlock);
-	for(int i=0; i<MAX_MOTION_TGT_NUM; i++){
-		if(m_units[chId][i].bHasDraw){
-			rectangle(dc, m_units[chId][i].drawRC, cvScalar(0), m_units[chId][i].thickness, m_units[chId][i].lineType );
-			putText(dc, m_units[chId][i].txt, m_units[chId][i].txtPos, CV_FONT_HERSHEY_COMPLEX, scalex,cvScalar(0));
-			m_units[chId][i].bHasDraw = false;
-		}
-		if(m_units[chId][i].bNeedDraw){
-			//sprintf(m_units[chId][i].txt, "%d", i+1);
-			sprintf(m_units[chId][i].txt, "%d", m_targets[chId][i].index+1);
-			if(!bFixSize){
-				winWidth = m_units[chId][i].orgRC.width;
-				winHeight = m_units[chId][i].orgRC.height;
+	if(m_curChId == chId){
+		for(int i=0; i<MAX_MOTION_TGT_NUM; i++){
+			if(m_units[chId][i].bNeedDraw){
+				if(!bFixSize){
+					winWidth = m_units[chId][i].orgRC.width;
+					winHeight = m_units[chId][i].orgRC.height;
+				}
+				//Rect rc(m_units[chId][i].orgPos.x-winWidth/2, m_units[chId][i].orgPos.y-winHeight/2, winWidth, winHeight);
+				Rect rc(m_units[chId][i].orgPos.x-winWidth/2+m_roi.x, m_units[chId][i].orgPos.y-winHeight/2+m_roi.y, winWidth, winHeight);
+				rc = tRectScale(rc, m_imgSize[chId], cv::Size(dc.cols, dc.rows));
+				m_units[chId][i].drawRC = rc;
+				osd->numberedBox(m_units[chId][i].drawRC, m_units[chId][i].orgValue+1, 0);
 			}
-			Rect rc(m_units[chId][i].orgPos.x-winWidth/2, m_units[chId][i].orgPos.y-winHeight/2, winWidth, winHeight);
-			rc = tRectScale(rc, m_imgSize[chId], cv::Size(dc.cols, dc.rows));
-			m_units[chId][i].drawRC = rc;
-			m_units[chId][i].thickness = thickness;
-			rectangle(dc, m_units[chId][i].drawRC, color, m_units[chId][i].thickness, m_units[chId][i].lineType );
-			Point pos(rc.x+rc.width+2, rc.y-8);
-			m_units[chId][i].txtPos = pos;
-			putText(dc, m_units[chId][i].txt, m_units[chId][i].txtPos, CV_FONT_HERSHEY_COMPLEX, scalex,color);
-			m_units[chId][i].bHasDraw = true;
 		}
 	}
 	OSA_mutexUnlock(&m_mutexlock);
