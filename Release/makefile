@@ -11,7 +11,6 @@ RM := rm -rf
 -include subdir.mk
 -include src/nvMedia/subdir.mk
 -include src/encTrans/subdir.mk
--include src/cr_osa/src/subdir.mk
 -include src/core/subdir.mk
 
 OS_SUFFIX := $(subst Linux,linux,$(subst Darwin/x86_64,darwin,$(shell uname -s)/$(shell uname -m)))

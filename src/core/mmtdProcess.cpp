@@ -192,18 +192,19 @@ int CMMTDProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSize)
 {
 	int iret = OSA_SOK;
 
+	//cout << "CMMTDProcess::dynamic_config type " << type << " iPrm " << iPrm << endl;
 	iret = CProcessBase::dynamic_config(type, iPrm, pPrm, prmSize);
 
 	if(type<VP_CFG_BASE || type>VP_CFG_MMTDMax)
 		return iret;
 
 	OSA_mutexLock(&m_mutexlock);
-	//cout << "CMMTDProcess::dynamic_config type " << type << " iPrm " << iPrm << endl;
 	switch(type)
 	{
 	case VP_CFG_MMTDTargetCount:
 		m_nCount = iPrm;
 		m_mmtd->SetTargetNum(m_nCount);
+		iret = OSA_SOK;
 		break;
 	case VP_CFG_MMTDEnable:
 		memset(m_target, 0, sizeof(m_target));
@@ -212,6 +213,7 @@ int CMMTDProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSize)
 		m_mmtd->ClearAllMMTD();
 		for(int i=0; i<MAX_TGT_NUM; i++)
 			m_units[m_curChId][i].bNeedDraw = false;
+		iret = OSA_SOK;
 		break;
 	case VP_CFG_MainChId:
 		memset(m_target, 0, sizeof(m_target));
@@ -227,8 +229,16 @@ int CMMTDProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSize)
 				m_units[m_curChId][i].bNeedDraw = false;
 		}
 		break;
+	case VP_CFG_GetTargetInfo:
+		//OSA_printf("mmtd %s: %d %d", __func__, iPrm, m_target[iPrm].valid);
+		if(iPrm>=0 && iPrm<MAX_TGT_NUM && m_target[iPrm].valid && pPrm != NULL){
+			PROC_TARGETINFO *tgt = (PROC_TARGETINFO*)pPrm;
+			tgt->valid = m_target[iPrm].valid;
+			tgt->Box = m_target[iPrm].Box;
+			iret = OSA_SOK;
+		}
+		break;
 	default:
-		iret = OSA_EFAIL;
 		break;
 	}
 	OSA_mutexUnlock(&m_mutexlock);

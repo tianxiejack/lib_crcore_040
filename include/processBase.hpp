@@ -45,6 +45,11 @@ typedef struct _OSD_unit_info{
 	cv::RotatedRect drawRRC;
 }OSDU_Info;
 
+typedef struct{
+	int valid;
+	cv::Rect Box;
+}PROC_TARGETINFO;
+
 class IProcess
 {
 public:
@@ -76,6 +81,7 @@ public:
 	enum{
 		VP_CFG_MainChId = VP_CFG_BASE,
 		VP_CFG_MainFov,
+		VP_CFG_GetTargetInfo,
 	};
 	virtual int dynamic_config(int type, int iPrm, void* pPrm = NULL, int prmSize = 0)
 	{

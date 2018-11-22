@@ -4,7 +4,7 @@
 #include <opencv/cv.hpp>
 #include <opencv2/opencv.hpp>
 
-#include "glosd.hpp"
+//#include "glosd.hpp"
 //#include <GLShaderManager.h>
 //#include <gl.h>
 #include <glew.h>
@@ -1127,15 +1127,6 @@ void CRender::gl_display(void)
 		//m_waitSync = false;
 #if (!RENDMOD_TIME_ON)
 		if(m_telapse<m_interval*0.000001f){
-			/*printf("\r\n[%d] telapse%.4f (cu%.4f,tv%.4f,to%.4f,ws%.4f,rd%.4f) %.4f",
-				OSA_getCurTimeInMsec(),telapse,
-				(tStamp[1]-tStamp[0])/getTickFrequency(),
-				(tStamp[2]-tStamp[1])/getTickFrequency(),
-				(tStamp[3]-tStamp[2])/getTickFrequency(),
-				(tStamp[4]-tStamp[3])/getTickFrequency(),
-				(tStamp[5]-tStamp[4])/getTickFrequency(),
-				m_telapse
-				);*/
 			m_telapse += 2.0f;
 		}
 #endif
@@ -1150,22 +1141,10 @@ void CRender::gl_display(void)
 	{
 		if(m_telapse<m_interval*0.000001f)
 			m_telapse+=0.5;
-		/*printf("\r\n%s: renderIntv %f (ws%f,cu%f,ch%f,osd%f,swp%f) %f",
-			__func__,	renderIntv,
-			(tStamp[1]-tStamp[0])/getTickFrequency(),
-			(tStamp[2]-tStamp[1])/getTickFrequency(),
-			(tStamp[3]-tStamp[2])/getTickFrequency(),
-			(tStamp[4]-tStamp[3])/getTickFrequency(),
-			(tStamp[5]-tStamp[4])/getTickFrequency(),
-			m_telapse
-			);*/
 	}else{
 		if(m_telapse>0.0005001)
 		m_telapse -= 0.0005;
 	}
-
-	//if((tStamp[1]-tStamp[0])/getTickFrequency()>0.006*DS_DC_CNT)
-	//	m_telapse = 5.0;
 
 #if 1
 	static unsigned long rCount = 0;

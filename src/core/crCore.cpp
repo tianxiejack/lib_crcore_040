@@ -25,9 +25,10 @@ namespace cr_osd
 extern void put(wchar_t* s, const cv::Point& pos, const cv::Scalar& color, size_t n, const wchar_t* format, ...);
 extern void put(const wchar_t* s, const cv::Point& pos, const cv::Scalar& color);
 extern void clear(void);
+extern GLShaderManagerMini		glShaderManager;
+extern std::vector<cr_osd::GLOSDFactory *> vosdFactorys;
 };
 //using namespace cr_osd;
-std::vector<cr_osd::GLOSDFactory *> vosdFactorys;
 #define isEqual(a,b) (fabs((a)-(b))<=1.0e-6)
 
 namespace cr_local
@@ -42,7 +43,6 @@ static CBkgdDetectProcess *bkgd = NULL;
 static CMotionDetectProcess *motion = NULL;
 static CMMTDProcess *mmtd = NULL;
 static CGeneralProc *general = NULL;
-static int initChannels = 0;
 static int curChannelFlag = 0;
 static int curSubChannelIdFlag = -1;
 static int curFovIdFlag[CORE_CHN_MAX];
@@ -135,7 +135,6 @@ static int ReadCfgFile_OSD(int nChannels)
 
 static void localInit(int nChannels, bool bEncoder)
 {
-	initChannels = nChannels;
 	curChannelFlag = 0;
 	memset(curFovIdFlag, 0, sizeof(curFovIdFlag));
 	enableTrackFlag = false;
@@ -280,7 +279,7 @@ static int enableMotionDetect(bool enable)
 
 static int enableTrackByMMTD(int index, cv::Size *winSize, bool bFixSize)
 {
-#if 1
+#if 0
 	if(index<0 || index>=MAX_TGT_NUM)
 		return OSA_EFAIL;
 
@@ -292,6 +291,33 @@ static int enableTrackByMMTD(int index, cv::Size *winSize, bool bFixSize)
 	acqrc.y = mmtd->m_target[index].Box.y;
 	acqrc.width = mmtd->m_target[index].Box.width;
 	acqrc.height = mmtd->m_target[index].Box.height;
+
+	if(winSize != NULL){
+		acqrc.x += (acqrc.width*0.5);
+		acqrc.y += (acqrc.height*0.5);
+		acqrc.width = winSize->width;
+		acqrc.height = winSize->height;
+		acqrc.x -= (acqrc.width*0.5);
+		acqrc.y -= (acqrc.height*0.5);
+	}
+
+	proc->dynamic_config(CTrackerProc::VP_CFG_AcqWinSize, bFixSize);
+	curFixSizeFlag = bFixSize;
+	return proc->dynamic_config(CTrackerProc::VP_CFG_TrkEnable, true, &acqrc, sizeof(acqrc));
+#else
+	PROC_TARGETINFO tgt;
+	tgt.valid = 0;
+	//OSA_printf("%s: CProcessBase::VP_CFG_GetTargetInfo index = %d", __func__, index);
+	int ret = mmtd->dynamic_config(CProcessBase::VP_CFG_GetTargetInfo, index, &tgt, sizeof(tgt));
+	if(ret != OSA_SOK || !tgt.valid){
+		//OSA_printf("%s: CProcessBase::VP_CFG_GetTargetInfo index = %d ret %d valid %d", __func__, index, ret, tgt.valid);
+		return OSA_EFAIL;
+	}
+	UTC_RECT_float acqrc;
+	acqrc.x = tgt.Box.x;
+	acqrc.y = tgt.Box.y;
+	acqrc.width = tgt.Box.width;
+	acqrc.height = tgt.Box.height;
 
 	if(winSize != NULL){
 		acqrc.x += (acqrc.width*0.5);
@@ -620,7 +646,7 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		memset(imgOsd[chId].data, 0, imgOsd[chId].cols*imgOsd[chId].rows*imgOsd[chId].channels());
 		if(bEncoder){
 			vOSDs[chId] = new cr_osd::DCOSD(&imgOsd[chId], fontSizeVideo[chId], fileNameFont[chId]);
-			vosdFactorys.push_back(vOSDs[chId]);
+			cr_osd::vosdFactorys.push_back(vOSDs[chId]);
 		}
 	}
 
@@ -692,7 +718,7 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		}
 		inputQ = new InputQueue;
 		inputQ->create(channels);
-		render->run();
+		//render->run();
 	}
 
 	blob = new CBlobDetectProcess();
@@ -739,10 +765,10 @@ static int uninit()
 	}
 
 	if(enctran == NULL){
-		for(int i=0; i<vosdFactorys.size(); i++)
-			delete vosdFactorys[i];
+		for(int i=0; i<cr_osd::vosdFactorys.size(); i++)
+			delete cr_osd::vosdFactorys[i];
 	}
-	vosdFactorys.clear();
+	cr_osd::vosdFactorys.clear();
 
 	delete enctran;
 	delete general;
@@ -894,89 +920,6 @@ static void renderFrame(int chId, const Mat& img, const struct v4l2_buffer& bufI
 		}
 	}
 }
-#if 0
-static void processFrame(int cap_chid, unsigned char *src, const struct v4l2_buffer& capInfo, int format)
-{
-	Mat img;
-
-	if(capInfo.flags & V4L2_BUF_FLAG_ERROR)
-		return;
-	//struct timespec ns0;
-	//clock_gettime(CLOCK_MONOTONIC_RAW, &ns0);
-	if(format==V4L2_PIX_FMT_YUYV)
-	{
-		//OSA_printf("%s ch%d %d", __func__, cap_chid, OSA_getCurTimeInMsec());
-		//OSA_printf("%s: %d ch%d %p", __func__, __LINE__, cap_chid, src);
-		img	= Mat(channelsImgSize[cap_chid].height,channelsImgSize[cap_chid].width,CV_8UC2, src);
-	}
-	else if(format==V4L2_PIX_FMT_GREY)
-	{
-		//OSA_printf("%s ch%d %d", __func__, cap_chid, OSA_getCurTimeInMsec());
-		//OSA_printf("%s: %d ch%d %p", __func__, __LINE__, cap_chid, src);
-		img = Mat(channelsImgSize[cap_chid].height,channelsImgSize[cap_chid].width,CV_8UC1,src);
-	}
-	else if(format==V4L2_PIX_FMT_BGR24){
-		img = Mat(channelsImgSize[cap_chid].height,channelsImgSize[cap_chid].width,CV_8UC3,src);
-		//OSA_printf("%s %d: %d x %d", __func__, __LINE__, img.cols, img.rows);
-	}else{
-		OSA_assert(0);
-	}
-
-	//if(imgQEnc[cap_chid] != NULL && vOSDs[cap_chid] != NULL){
-	//	OSA_assert(enctran != NULL);
-	if(vOSDs[cap_chid] != NULL){
-		vOSDs[cap_chid]->begin(colorRGBAFlag, curThicknessFlag);
-	}
-
-	if(curChannelFlag == cap_chid || curSubChannelIdFlag == cap_chid || bindBlendFlag[cap_chid] != 0)
-		proc->process(cap_chid, curFovIdFlag[cap_chid], ezoomxFlag[cap_chid], img);
-
-	if(bindBlendFlag[cap_chid] != 0 && render != NULL && bkgd != NULL){
-		DS_BlendPrm prm;
-		prm.fAlpha = bkgd->m_alpha;
-		prm.thr0Min = bkgd->m_thr0Min;
-		prm.thr0Max = bkgd->m_thr0Max;
-		prm.thr1Min = bkgd->m_thr1Min;
-		prm.thr1Max = bkgd->m_thr1Max;
-		for(int chId=0; chId<DS_CHAN_MAX; chId++){
-			if((bindBlendFlag[cap_chid] & (1<<chId))!=0)
-				render->dynamic_config(CRender::DS_CFG_BlendPrm, chId*DS_CHAN_MAX+cap_chid, &prm);
-		}
-	}
-
-	if(imgQEnc[cap_chid] != NULL)
-	{
-		if(vOSDs[cap_chid] != NULL && enableOSDFlag)
-			vOSDs[cap_chid]->Draw();
-		encTranFrame(cap_chid, img, capInfo, enableEncoderFlag[cap_chid]);
-		if(imgQRender[cap_chid] != NULL)
-			renderFrameAfterEnc(cap_chid, img, capInfo);
-		if(vOSDs[cap_chid] != NULL)
-			vOSDs[cap_chid]->end();
-	}
-	else if(imgQRender[cap_chid] != NULL)
-	{
-		if(!isEqual(ezoomxFlag[cap_chid]*1.0, scaleFlag[cap_chid])){
-			scaleFlag[cap_chid] = ezoomxFlag[cap_chid]*1.0;
-			GLfloat fscale = scaleFlag[cap_chid];
-			GLfloat mat4[16] ={
-				fscale, 0.0f, 0.0f, 0.0f,
-				0.0f, fscale, 0.0f, 0.0f,
-				0.0f, 0.0f, 1.0f, 0.0f,
-				0.0f, 0.0f, 0.0f, 1.0f
-			};
-			render->dynamic_config(CRender::DS_CFG_VideoTransMat, cap_chid, mat4);
-		}
-		//render->m_bOsd = enableOSDFlag;
-		renderFrame(cap_chid, img, capInfo, format);
-	}
-
-	//struct timespec ns1;
-	//clock_gettime(CLOCK_MONOTONIC_RAW, &ns1);
-	//printf("[%ld.%ld] ch%d timestamp %ld.%ld flags %08X\n", ns1.tv_sec, ns1.tv_nsec/1000000,
-	//		cap_chid, ns0.tv_sec, ns0.tv_nsec/1000000, info.flags);
-}
-#endif
 
 static void processFrameAtOnce(int cap_chid, unsigned char *src, const struct v4l2_buffer& capInfo, int format)
 {
@@ -1094,6 +1037,9 @@ static void videoInput(int cap_chid, unsigned char *src, const struct v4l2_buffe
 	if(inputQ != NULL){
 		int channels = ( (format == V4L2_PIX_FMT_GREY) ? 1 : ((format == V4L2_PIX_FMT_BGR24 || format == V4L2_PIX_FMT_RGB24) ? 3 : 2) );
 		inputQ->input(cap_chid, src, &capInfo, channelsImgSize[cap_chid], format, channels);
+		OSA_assert(render != NULL);
+		//if(cap_chid == 0)
+		//	glutPostRedisplay();
 	}else{
 		processFrame(cap_chid,src, capInfo, format);
 	}
@@ -1101,14 +1047,14 @@ static void videoInput(int cap_chid, unsigned char *src, const struct v4l2_buffe
 
 static void renderInitCall(void)
 {
-	glShaderManager.InitializeStockShaders();
-	for(int chId=0; chId<initChannels; chId++){
+	cr_osd::glShaderManager.InitializeStockShaders();
+	for(int chId=0; chId<nValidChannels; chId++){
 		if(vOSDs[chId] == NULL)
 			vOSDs[chId] = new cr_osd::GLOSD(render->m_mainWinWidth, render->m_mainWinHeight, fontSizeVideo[chId], fileNameFont[chId]);
 	}
 	if(enctran == NULL){
 		glosdFront = new cr_osd::GLOSD(render->m_mainWinWidth, render->m_mainWinHeight, fontSizeRender, fileNameFontRender);
-		vosdFactorys.push_back(glosdFront);
+		cr_osd::vosdFactorys.push_back(glosdFront);
 	}
 }
 
@@ -1119,7 +1065,7 @@ static void renderCall(int stepIdx, int stepSub, int context)
 		OSA_assert(imgQEnc[0] == NULL);
 		/*if(stepIdx == CRender::RUN_ENTER)
 		{
-			for(int chId =0; chId<initChannels; chId++){
+			for(int chId =0; chId<nValidChannels; chId++){
 				if(vOSDs[chId] != NULL)
 					vOSDs[chId]->begin(colorRGBAFlag, curThicknessFlag);
 			}
@@ -1132,7 +1078,7 @@ static void renderCall(int stepIdx, int stepSub, int context)
 		}
 		if(stepIdx == CRender::RUN_SWAP)
 		{
-			for(int chId =0; chId<initChannels; chId++){
+			for(int chId =0; chId<nValidChannels; chId++){
 				if(vOSDs[chId] != NULL)
 					vOSDs[chId]->end();
 			}
@@ -1426,7 +1372,7 @@ void Core_1001::update()
 	//OSA_printf("%s %d: enter.", __func__, __LINE__);
 	m_stats.mainChId = cr_local::curChannelFlag;
 	m_stats.acqWinSize.width = cr_local::general->m_sizeAcqWin.width;
-	m_stats.acqWinSize.width = cr_local::general->m_sizeAcqWin.width;
+	m_stats.acqWinSize.height = cr_local::general->m_sizeAcqWin.height;
 	m_stats.enableTrack = cr_local::enableTrackFlag;
 	m_stats.enableMMTD = cr_local::enableMMTDFlag;
 	m_stats.enableMotionDetect = cr_local::enableMotionDetectFlag;

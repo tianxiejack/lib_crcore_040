@@ -27,6 +27,5 @@ C_UPPER_DEPS :=
 SUBDIRS := \
 src/nvMedia \
 src/encTrans \
-src/cr_osa/src \
 src/core \
 

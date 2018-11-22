@@ -187,9 +187,9 @@ int CBkgdDetectProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSi
 		if(pPrm != NULL)
 			m_curChId = *(int*)pPrm;
 		m_cnt[m_curChId] = 0;
+		iret = OSA_SOK;
 		break;
 	default:
-		iret = OSA_EFAIL;
 		break;
 	}
 	OSA_mutexUnlock(&m_mutexlock);

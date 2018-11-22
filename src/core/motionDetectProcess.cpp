@@ -173,12 +173,12 @@ int CMotionDetectProcess::process(int chId, int fovId, int ezoomx, Mat frame)
 void CMotionDetectProcess::update(int chId)
 {
 	//OSA_printf("%s %d: ch%d size = %ld", __func__, __LINE__, chId, m_targets[chId].size());
+	OSA_mutexLock(&m_mutexlock);
 	if(m_curMode == WARN_MOVEDETECT_MODE)
 		m_inter->getMoveTarget(m_targets[chId], chId);
 	else
 		m_inter->getWarnTarget(m_targets[chId], chId);
 	if(!m_bHide){
-		OSA_mutexLock(&m_mutexlock);
 		int i=0;
 		if(m_bEnable && m_bOpen && m_cnt[chId]>20 && m_curChId == chId){
 			for(i=0; i<m_targets[chId].size(); i++)
@@ -191,8 +191,8 @@ void CMotionDetectProcess::update(int chId)
 		}
 		for(;i<MAX_MOTION_TGT_NUM; i++)
 			m_units[chId][i].bNeedDraw = false;
-		OSA_mutexUnlock(&m_mutexlock);
 	}
+	OSA_mutexUnlock(&m_mutexlock);
 }
 
 int CMotionDetectProcess::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd)
@@ -250,6 +250,7 @@ int CMotionDetectProcess::dynamic_config(int type, int iPrm, void* pPrm, int prm
 	case VP_CFG_MONTIONTargetCount:
 		m_nCount = iPrm;
 		//m_mmtd->SetTargetNum(m_nCount);
+		iret = OSA_SOK;
 		break;
 	case VP_CFG_MONTIONEnable:
 		m_inter->setWarnMode(m_curMode, m_curChId);
@@ -263,6 +264,7 @@ int CMotionDetectProcess::dynamic_config(int type, int iPrm, void* pPrm, int prm
 			m_units[m_curChId][i].bNeedDraw = false;
 		m_cnt[m_curChId] = 0;
 		m_bOpen = m_bEnable;
+		iret = OSA_SOK;
 		break;
 	case VP_CFG_MainChId:
 		if(m_bEnable){
@@ -282,8 +284,20 @@ int CMotionDetectProcess::dynamic_config(int type, int iPrm, void* pPrm, int prm
 		}
 		m_cnt[m_curChId] = 0;
 		break;
+	case VP_CFG_GetTargetInfo:
+		if(iPrm>=0 && iPrm<MAX_MOTION_TGT_NUM && pPrm != NULL){
+			PROC_TARGETINFO *tgt = (PROC_TARGETINFO*)pPrm;
+			for(std::vector<TRK_RECT_INFO>::iterator it = m_targets[m_curChId].begin(); it != m_targets[m_curChId].end(); ++it){
+				if((*it).index == iPrm){
+					tgt->valid = 1;
+					tgt->Box = (*it).targetRect;
+					iret = OSA_SOK;
+					break;
+				}
+			}
+		}
+		break;
 	default:
-		iret = OSA_EFAIL;
 		break;
 	}
 	OSA_mutexUnlock(&m_mutexlock);

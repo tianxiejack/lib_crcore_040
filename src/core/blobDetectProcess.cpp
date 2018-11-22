@@ -309,6 +309,7 @@ int CBlobDetectProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSi
 	{
 	case VP_CFG_BLOBTargetCount:
 		m_nCount = iPrm;
+		iret = OSA_SOK;
 		break;
 	case VP_CFG_BLOBEnable:
 		m_bEnable = iPrm;
@@ -316,6 +317,7 @@ int CBlobDetectProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSi
 		for(int i=0; i<MAX_BLOB_TGT_NUM; i++)
 			m_units[m_curChId][i].bNeedDraw = false;
 		m_cnt[m_curChId] = 0;
+		iret = OSA_SOK;
 		break;
 	case VP_CFG_MainChId:
 		if(m_bEnable){
@@ -332,7 +334,6 @@ int CBlobDetectProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSi
 		m_cnt[m_curChId] = 0;
 		break;
 	default:
-		iret = OSA_EFAIL;
 		break;
 	}
 	OSA_mutexUnlock(&m_mutexlock);

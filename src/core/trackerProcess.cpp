@@ -477,7 +477,6 @@ int CTrackerProc::dynamic_config_(int type, int iPrm, void* pPrm)
 		break;
 
 	default:
-		iret = OSA_EFAIL;
 		break;
 	}
 	//OSA_printf("%s %i: ", __func__, __LINE__);
