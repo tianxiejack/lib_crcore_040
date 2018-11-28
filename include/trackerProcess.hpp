@@ -21,7 +21,7 @@ typedef struct _main_thr_obj{
 	OSA_ThrHndl		thrHandleProc;
 	//OSA_SemHndl		procNotifySem;
 	OSA_MsgqHndl hMsgQ;
-	int			pp;
+	volatile int			pp;
 	volatile bool		exitProcThread;
 	bool		initFlag;
 	void		*pParent;
@@ -44,7 +44,7 @@ typedef struct _VP_cfg_mainChId_prm{
 class CTrackerProc : public CProcessBase
 {
 	MAIN_ProcThrObj	mainProcThrObj;
-	unsigned char *m_mainMem[2];
+	unsigned char *m_mainMem[8];
 	Mat mainFramegray[2];
 	Mat mainFrame[2];
 
@@ -139,7 +139,7 @@ private:
 	static void *mainProcTsk(void *context)
 	{
 		//OSA_waitMsecs(200);
-		OSA_printf("%s:%d context=%p\n", __func__, __LINE__, context);
+		//OSA_printf("%s:%d context=%p\n", __func__, __LINE__, context);
 		MAIN_ProcThrObj  * pObj= (MAIN_ProcThrObj*) context;
 		CTrackerProc *ctxHdl = (CTrackerProc *) pObj->pParent;
 

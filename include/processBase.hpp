@@ -8,6 +8,8 @@
 #ifndef PROCESSBASE_HPP_
 #define PROCESSBASE_HPP_
 
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/objdetect/objdetect.hpp>
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv/cv.hpp>
@@ -34,6 +36,7 @@ using namespace cv;
 #define VP_CFG_MONTION_BASE	(0x3000 + VP_CFG_BASE)
 #define VP_CFG_BKGD_BASE	(0x4000 + VP_CFG_BASE)
 #define VP_CFG_BLOB_BASE	(0x5000 + VP_CFG_BASE)
+#define VP_CFG_SVM_BASE     (0x6000 + VP_CFG_BASE)
 
 typedef struct _OSD_unit_info{
 	bool bNeedDraw;

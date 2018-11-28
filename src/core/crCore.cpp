@@ -8,6 +8,7 @@
 //#include <glew.h>
 #include <glut.h>
 #include <freeglut_ext.h>
+#include "SVMDetectProcess.hpp"
 #include "blobDetectProcess.hpp"
 #include "backgroundProcess.hpp"
 #include "motionDetectProcess.hpp"
@@ -23,8 +24,8 @@
 namespace cr_osd
 {
 extern void put(wchar_t* s, const cv::Point& pos, const cv::Scalar& color, size_t n, const wchar_t* format, ...);
-extern void put(const wchar_t* s, const cv::Point& pos, const cv::Scalar& color);
-extern void clear(void);
+//extern void put(const wchar_t* s, const cv::Point& pos, const cv::Scalar& color);
+//extern void clear(void);
 extern GLShaderManagerMini		glShaderManager;
 extern std::vector<cr_osd::GLOSDFactory *> vosdFactorys;
 };
@@ -38,6 +39,7 @@ static cr_osd::GLOSD *glosdFront = NULL;
 static CEncTrans *enctran = NULL;
 static CRender *render = NULL;
 static IProcess *proc = NULL;
+static CSVMDetectProcess *svm = NULL;
 static CBlobDetectProcess *blob = NULL;
 static CBkgdDetectProcess *bkgd = NULL;
 static CMotionDetectProcess *motion = NULL;
@@ -352,6 +354,8 @@ static int enableBlob(bool enable)
 {
 	proc->dynamic_config(CBlobDetectProcess::VP_CFG_BLOBTargetCount, 1);
 	proc->dynamic_config(CBlobDetectProcess::VP_CFG_BLOBEnable, enable);
+	//proc->dynamic_config(CSVMDetectProcess::VP_CFG_SVMTargetCount, 8);
+	//proc->dynamic_config(CSVMDetectProcess::VP_CFG_SVMEnable, enable);
 	enableBlobFlag = enable;
 	return OSA_SOK;
 }
@@ -721,12 +725,14 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		//render->run();
 	}
 
-	blob = new CBlobDetectProcess();
+	svm = new CSVMDetectProcess();
+	blob = new CBlobDetectProcess(svm);
 	bkgd = new CBkgdDetectProcess(blob);
 	motion = new CMotionDetectProcess(bkgd);
 	mmtd = new CMMTDProcess(motion);
 	general = new CGeneralProc(notify,mmtd);
 
+	svm->m_bHide = bHideOSD;
 	blob->m_bHide = bHideOSD;
 	motion->m_bHide = bHideOSD;
 	mmtd->m_bHide = bHideOSD;
@@ -776,6 +782,7 @@ static int uninit()
 	delete motion;
 	delete bkgd;
 	delete blob;
+	delete svm;
 	for(int chId=0; chId<nValidChannels; chId++){
 		cudaFreeHost(imgOsd[chId].data);
 		cudaFreeHost(memsI420[chId]);
@@ -885,8 +892,9 @@ static void renderFrame(int chId, const Mat& img, const struct v4l2_buffer& bufI
 				frame = Mat(img.rows,img.cols,CV_8UC3, info->physAddr);
 				if(enableEnhFlag[chId])
 					cuConvertEnh_yuv2bgr_yuyv_async(chId, img, frame, CUT_FLAG_devAlloc);
-				else
+				else{
 					cuConvert_yuv2bgr_yuyv_async(chId, img, frame, CUT_FLAG_devAlloc);
+				}
 				info->format = V4L2_PIX_FMT_BGR24;
 			}
 			else if(format==V4L2_PIX_FMT_BGR24){
@@ -926,7 +934,7 @@ static void processFrameAtOnce(int cap_chid, unsigned char *src, const struct v4
 	if(capInfo.flags & V4L2_BUF_FLAG_ERROR)
 		return;
 
-	if(curChannelFlag == cap_chid || curSubChannelIdFlag == cap_chid || bindBlendFlag[cap_chid] != 0){
+	if(curChannelFlag == cap_chid /*|| curSubChannelIdFlag == cap_chid*/ || bindBlendFlag[cap_chid] != 0){
 		Mat img;
 		if(format==V4L2_PIX_FMT_YUYV)
 		{
@@ -979,7 +987,7 @@ static void processFrame(int cap_chid, unsigned char *src, const struct v4l2_buf
 		vOSDs[cap_chid]->begin(colorRGBAFlag, curThicknessFlag);
 	}
 
-	if(curChannelFlag == cap_chid || curSubChannelIdFlag == cap_chid || bindBlendFlag[cap_chid] != 0)
+	if(curChannelFlag == cap_chid /*|| curSubChannelIdFlag == cap_chid*/ || bindBlendFlag[cap_chid] != 0)
 		proc->OnOSD(cap_chid, curFovIdFlag[cap_chid], ezoomxFlag[cap_chid], general->m_dc[cap_chid], general->m_vosds[cap_chid]);
 
 	if(bindBlendFlag[cap_chid] != 0 && render != NULL && bkgd != NULL){

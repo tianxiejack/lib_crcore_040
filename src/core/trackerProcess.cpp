@@ -59,10 +59,11 @@ static void extractYUYV2Gray(Mat src, Mat dst)
 	uint8_t  *  pDst8_t;
 	uint8_t *  pSrc8_t;
 
+	const int stap = (ImgHeight*ImgWidth);
 	pSrc8_t = (uint8_t*)(src.data);
 	pDst8_t = (uint8_t*)(dst.data);
 
-	for(int y = 0; y < ImgHeight*ImgWidth; y++)
+	for(int y = 0; y < stap; y++)
 	{
 		pDst8_t[y] = pSrc8_t[y*2];
 	}
@@ -80,41 +81,39 @@ int CTrackerProc::process(int chId, int fovId, int ezoomx, Mat frame)
 //	tstart = getTickCount();
 	//if(chId == m_curChId)
 	{
-		int pp;
-
 		if(!OnPreProcess(chId, frame)){
 			return 0;
 		}
 
 		OSA_mutexLock(&mainProcThrObj.m_mutex);
+		int pp;
 		pp = mainProcThrObj.pp;
-		mainProcThrObj.cxt[pp].chId = chId;
-		mainProcThrObj.cxt[pp].fovId = fovId;
-		mainProcThrObj.cxt[pp].ezoomx = ezoomx;
-		mainFrame[pp] = frame;
-		int channel = frame.channels();
-		//OSA_printf("%s: %d ch%d frame %dx%d", __func__, __LINE__, chId, frame.cols, frame.rows);
-		Mat frame_gray = Mat(frame.rows, frame.cols, CV_8UC1, m_mainMem[pp]);
-		//OSA_printf("%s: %d ", __func__, __LINE__);
-		if(channel == 2)
+		if(ppBak != pp)
 		{
-			//OSA_printf("%s: %d %p", __func__, __LINE__, frame.data);
-			OSA_assert(frame.data != NULL && frame_gray.data != NULL);
-			extractYUYV2Gray(frame, frame_gray);
+			int channel = frame.channels();
+			//OSA_printf("%s: %d ch%d frame %dx%d", __func__, __LINE__, chId, frame.cols, frame.rows);
+			Mat frame_gray = Mat(frame.rows, frame.cols, CV_8UC1, m_mainMem[pp]);
 			//OSA_printf("%s: %d ", __func__, __LINE__);
-		}
-		else if(channel == 3){
-			cvtColor(frame, frame_gray, COLOR_BGR2GRAY);
-		}else{
-			memcpy(frame_gray.data, frame.data, frame.cols*frame.rows*channel*sizeof(unsigned char));
-		}
-		mainFramegray[pp] = frame_gray;
-		if(ppBak != pp){
+			if(channel == 2)
+			{
+				//OSA_printf("%s: %d %p", __func__, __LINE__, frame.data);
+				OSA_assert(frame.data != NULL && frame_gray.data != NULL);
+				extractYUYV2Gray(frame, frame_gray);
+				//OSA_printf("%s: %d ", __func__, __LINE__);
+			}
+			else if(channel == 3){
+				cvtColor(frame, frame_gray, COLOR_BGR2GRAY);
+			}else{
+				memcpy(frame_gray.data, frame.data, frame.cols*frame.rows*channel*sizeof(unsigned char));
+			}
+			mainProcThrObj.cxt[pp].chId = chId;
+			mainProcThrObj.cxt[pp].fovId = fovId;
+			mainProcThrObj.cxt[pp].ezoomx = ezoomx;
+			mainFrame[pp] = frame;
+			mainFramegray[pp] = frame_gray;
 			//OSA_printf("%s %d: ch%d(%d) fov%d(%d)", __func__, __LINE__, chId, m_curChId, fovId, m_curFovId[m_curChId]);
 			OSA_msgqSendMsg(&mainProcThrObj.hMsgQ, NULL, VP_CFG_NewData, NULL, 0, NULL);
-			ppBak = pp;
-		}else{
-			//OnProcess(chId, frame);
+			ppBak = mainProcThrObj.pp;
 		}
 		OSA_mutexUnlock(&mainProcThrObj.m_mutex);
 	}
@@ -129,7 +128,7 @@ void CTrackerProc::main_proc_func()
 {
 	int ret = OSA_SOK;
 	OSA_MsgHndl msgRcv;
-	OSA_printf("%s: Main Proc Tsk Is Entering..[%d].\n",__func__, mainProcThrObj.exitProcThread);
+	//OSA_printf("%s: Main Proc Tsk Is Entering..[%d].\n",__func__, mainProcThrObj.exitProcThread);
 	unsigned int framecount=0;
 
 	while(mainProcThrObj.exitProcThread ==  false)
@@ -501,7 +500,7 @@ int CTrackerProc::run()
 {
 	m_track = CreateUtcTrk();
 
-	OSA_printf(" %d:%s end\n", OSA_getCurTimeInMsec(),__func__);
+	//OSA_printf(" %d:%s end\n", OSA_getCurTimeInMsec(),__func__);
 
 	OnRun();
 
@@ -512,7 +511,7 @@ int CTrackerProc::stop()
 {
 	OnStop();
 
-	OSA_printf(" %d:%s enter\n", OSA_getCurTimeInMsec(),__func__);
+	//OSA_printf(" %d:%s enter\n", OSA_getCurTimeInMsec(),__func__);
 
 	if(m_track != NULL)
 		DestroyUtcTrk(m_track);
@@ -716,8 +715,8 @@ int CTrackerProc::process_track(int trackStatus, Mat frame_gray, Mat frame_dis, 
 	else
 	{
 		UTC_ACQ_param acq;
-		OSA_printf("ACQ (%f, %f, %f, %f)",
-				rcResult.x, rcResult.y, rcResult.width, rcResult.height);
+		//OSA_printf("ACQ (%f, %f, %f, %f)",
+		//		rcResult.x, rcResult.y, rcResult.width, rcResult.height);
 		acq.axisX = m_axis.x;// image.width/2;
 		acq.axisY = m_axis.y;//image.height/2;
 		acq.rcWin.x = (int)(rcResult.x);

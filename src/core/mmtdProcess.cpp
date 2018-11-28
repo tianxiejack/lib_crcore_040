@@ -139,7 +139,7 @@ int CMMTDProcess::process(int chId, int fovId, int ezoomx, Mat frame)
 			//OSA_printf("chId = %d, resize: time = %f sec \n", chId, ( (getTickCount() - tks)/getTickFrequency()) );
 			m_mmtd->MMTDProcessRect(rsMat, targets, roi, frame, 0);
 		}
-		OSA_mutexLock(&m_mutexlock);
+		//OSA_mutexLock(&m_mutexlock);
 		memcpy(&m_target, &targets, sizeof(m_target));
 		for(int i=0; i<m_nCount; i++)
 		{
@@ -153,7 +153,7 @@ int CMMTDProcess::process(int chId, int fovId, int ezoomx, Mat frame)
 				m_units[chId][i].bNeedDraw = false;
 			}
 		}
-		OSA_mutexUnlock(&m_mutexlock);
+		//OSA_mutexUnlock(&m_mutexlock);
 	}
 	//OSA_printf("%s %d: ch%d(%d) nvalid = %d", __func__, __LINE__, chId, m_bEnable, nValid);
 
@@ -169,7 +169,7 @@ int CMMTDProcess::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *os
 	int winHeight = 40*scaley;
 	bool bFixSize = false;
 
-	OSA_mutexLock(&m_mutexlock);
+	//OSA_mutexLock(&m_mutexlock);
 	if(m_curChId == chId)
 	{
 		for(int i=0; i<MAX_TGT_NUM; i++){
@@ -185,7 +185,7 @@ int CMMTDProcess::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *os
 			}
 		}
 	}
-	OSA_mutexUnlock(&m_mutexlock);
+	//OSA_mutexUnlock(&m_mutexlock);
 }
 
 int CMMTDProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSize)

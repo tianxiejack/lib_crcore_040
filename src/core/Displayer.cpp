@@ -4,7 +4,7 @@
 #include <opencv/cv.hpp>
 #include <opencv2/opencv.hpp>
 
-//#include "glosd.hpp"
+#include "glosd.hpp"
 //#include <GLShaderManager.h>
 //#include <gl.h>
 #include <glew.h>
@@ -12,7 +12,8 @@
 #include <freeglut_ext.h>
 #include <cuda.h>
 #include <cuda_gl_interop.h>
-#include "cuda_runtime_api.h"
+#include <cuda_runtime_api.h>
+#include <X11/Xlib.h>
 #include "osa.h"
 #include "osa_mutex.h"
 #include "osa_tsk.h"
@@ -523,10 +524,36 @@ int CRender::setFullScreen(bool bFull)
 
 static char glName[] = {"DS_RENDER"}; 
 
+static int getDisplayResolution(uint32_t &width, uint32_t &height)
+{
+    int screen_num;
+    Display * x_display = XOpenDisplay(NULL);
+    if (NULL == x_display)
+    {
+        return  -1;
+    }
+
+    screen_num = DefaultScreen(x_display);
+    width = DisplayWidth(x_display, screen_num);
+    height = DisplayHeight(x_display, screen_num);
+
+    XCloseDisplay(x_display);
+    x_display = NULL;
+
+    return 0;
+}
+
 int CRender::gl_create()
 {
 	char *argv[1] = {glName};
 	int argc = 1;
+	uint32_t screenWidth = 0, screenHeight = 0;
+	if(getDisplayResolution(screenWidth, screenHeight) == 0)
+	{
+		m_mainWinWidth = screenWidth;
+		m_mainWinHeight = screenHeight;
+	}
+	OSA_printf("screen resolution: %d x %d", screenWidth, screenHeight);
    // GLUT init
     glutInit(&argc, argv);  
 	//Double, Use glutSwapBuffers() to show
@@ -921,6 +948,33 @@ void CRender::UpdateOSD(void)
 		txt2.putText(m_imgDC[0], strTxt, cv::Point(20, 500), cv::Scalar(0, 0, 0, 255));
 	}
 #endif
+
+#if 0
+	{
+		using namespace cr_osd;
+		static cv::Mat wave(60, 60, CV_32FC1);
+		static cv::Rect rc(1500, 20, 400, 400);
+		static IPattern* pattern = NULL;
+		//static int cnt = 0;
+		//cnt ^=1;
+		//wave.setTo(Scalar::all((double)cnt));
+		if(pattern == NULL){
+
+			cv::RNG rng = cv::RNG(OSA_getCurTimeInMsec());
+			for(int i=0; i<wave.rows; i++){
+				for(int j=0; j<wave.cols; j++)
+				{
+//					wave.at<float>(i, j) = sin(i*2*CV_PI/180.0);
+					wave.at<float>(i, j)= std::exp(-1.0*((i-wave.rows/2)*(i-wave.rows/2)+(j-wave.cols/2)*(j-wave.cols/2))/(2.0*10*10)) - 1.0;///(CV_PI*2.0*3.0*3.0);
+
+				}
+			}
+
+			pattern = IPattern::Create(wave, rc);
+		}
+		pattern->draw();
+	}
+#endif
 }
 
 void CRender::gl_display(void)
@@ -1121,6 +1175,8 @@ void CRender::gl_display(void)
 
 	m_waitSync = true;
 	int64 tcur = tStamp[5];
+	m_telapse = (tStamp[5] - tStamp[1])*0.000001f + 3.0;
+	/*
 	double telapse = ( (tcur - tstart)/getTickFrequency())*1000.0f;
 	if(telapse > m_interval*0.00000098f)
 	{
@@ -1130,11 +1186,12 @@ void CRender::gl_display(void)
 			m_telapse += 2.0f;
 		}
 #endif
-	}
+	}*/
+
 	glutSwapBuffers();
+	tStamp[6] = getTickCount();
 	if(m_initPrm.renderfunc != NULL)
 		m_initPrm.renderfunc(RUN_LEAVE, 0, 0);
-	tStamp[6] = getTickCount();
 	tend = tStamp[6];
 	float renderIntv = (tend - m_tmRender)/getTickFrequency();
 	if(renderIntv > m_interval*0.0000000011f)

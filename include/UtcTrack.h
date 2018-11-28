@@ -26,7 +26,7 @@ typedef struct
 	int  height;
 }UTC_Rect;
 
-typedef struct UTC_RECT_float
+typedef struct
 {
 	float  x;
 	float  y;
@@ -381,9 +381,4 @@ void UtcSetSceneEnh(UTCTRACK_OBJ *pUtcTrkObj, bool bEnhScene);
  * 设置场景区域增强宏块大小
  */
 void UtcSetSceneEnhMacro(UTCTRACK_OBJ *pUtcTrkObj, unsigned int	 nrxScene, unsigned int nryScene);
-/*
- *
- * 向算法通知私服水平和俯仰方向的速度，单位是像素
- */
-void UtcNotifyServoSpeed(UTCTRACK_OBJ *pUtcTrkObj, float speedx, float speedy);
 #endif

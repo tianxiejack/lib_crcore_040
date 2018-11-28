@@ -232,7 +232,7 @@ int CBlobDetectProcess::detect(int chId, Mat frame)
 void CBlobDetectProcess::update(int chId)
 {
 	//OSA_printf("%s %d: ch%d size = %ld", __func__, __LINE__, chId, m_targets[chId].size());
-	OSA_mutexLock(&m_mutexlock);
+	//OSA_mutexLock(&m_mutexlock);
 	int cnt = 0;
 	if(!m_bHide){
 		int i=0;
@@ -258,7 +258,7 @@ void CBlobDetectProcess::update(int chId)
 	}else{
 		m_bValid = false;
 	}
-	OSA_mutexUnlock(&m_mutexlock);
+	//OSA_mutexUnlock(&m_mutexlock);
 }
 
 __inline__ void draw_center(Mat dc, Point center, int length, CvScalar color, int thickness)
@@ -279,7 +279,7 @@ int CBlobDetectProcess::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectO
 	float scalex = dc.cols/1920.0;
 	float scaley = dc.rows/1080.0;
 
-	OSA_mutexLock(&m_mutexlock);
+	//OSA_mutexLock(&m_mutexlock);
 	if(m_curChId == chId){
 		for(int i=0; i<MAX_BLOB_TGT_NUM; i++){
 			if(m_units[chId][i].bNeedDraw){
@@ -291,7 +291,7 @@ int CBlobDetectProcess::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectO
 			}
 		}
 	}
-	OSA_mutexUnlock(&m_mutexlock);
+	//OSA_mutexUnlock(&m_mutexlock);
 }
 
 int CBlobDetectProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSize)

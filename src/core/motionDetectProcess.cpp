@@ -93,9 +93,7 @@ int CMotionDetectProcess::process(int chId, int fovId, int ezoomx, Mat frame)
 	m_imgSize[chId].width = frame.cols;
 	m_imgSize[chId].height = frame.rows;
 
-	OSA_mutexLock(&m_mutexlock);
 	if(m_curChId != chId || !m_bEnable){
-		OSA_mutexUnlock(&m_mutexlock);
 		return iRet;
 	}
 
@@ -165,15 +163,13 @@ int CMotionDetectProcess::process(int chId, int fovId, int ezoomx, Mat frame)
 		}
 	}
 
-	OSA_mutexUnlock(&m_mutexlock);
-
 	return iRet;
 }
 
 void CMotionDetectProcess::update(int chId)
 {
 	//OSA_printf("%s %d: ch%d size = %ld", __func__, __LINE__, chId, m_targets[chId].size());
-	OSA_mutexLock(&m_mutexlock);
+	//OSA_mutexLock(&m_mutexlock);
 	if(m_curMode == WARN_MOVEDETECT_MODE)
 		m_inter->getMoveTarget(m_targets[chId], chId);
 	else
@@ -192,7 +188,7 @@ void CMotionDetectProcess::update(int chId)
 		for(;i<MAX_MOTION_TGT_NUM; i++)
 			m_units[chId][i].bNeedDraw = false;
 	}
-	OSA_mutexUnlock(&m_mutexlock);
+	//OSA_mutexUnlock(&m_mutexlock);
 }
 
 int CMotionDetectProcess::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd)
@@ -215,7 +211,7 @@ int CMotionDetectProcess::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirec
 	int winHeight = 40*scaley;
 	bool bFixSize = false;
 
-	OSA_mutexLock(&m_mutexlock);
+	//OSA_mutexLock(&m_mutexlock);
 	if(m_curChId == chId){
 		for(int i=0; i<MAX_MOTION_TGT_NUM; i++){
 			if(m_units[chId][i].bNeedDraw){
@@ -231,7 +227,7 @@ int CMotionDetectProcess::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirec
 			}
 		}
 	}
-	OSA_mutexUnlock(&m_mutexlock);
+	//OSA_mutexUnlock(&m_mutexlock);
 }
 
 int CMotionDetectProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSize)

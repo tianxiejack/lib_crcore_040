@@ -14,6 +14,7 @@
 #include "directOsd.hpp"
 #include "gltext.hpp"
 #include "dctext.hpp"
+#include "crosd.hpp"
 #include "osa_mutex.h"
 
 namespace cr_osd
@@ -182,6 +183,8 @@ class GLOSDFactory : public IDirectOSD
 public:
 	cv::Size m_viewport;
 	virtual void Draw(void) = 0;
+	virtual void Add(IPattern* ptt) = 0;
+	virtual void Erase(IPattern* ptt) = 0;
 	virtual void Add(GLOSDTxt* txt) = 0;
 	virtual void Erase(GLOSDTxt* txt) = 0;
 	virtual void Add(GLOSDUNITBase* unit) = 0;
@@ -194,6 +197,8 @@ typedef std::vector<GLOSDTxt*>::iterator viTXT;
 typedef std::vector<GLOSDUNITBase*> vUNIT;
 typedef std::vector<GLOSDUNITBase*>::iterator viUNIT;
 typedef std::vector<vUNIT> aUNIT;
+typedef std::vector<IPattern*> vPtt;
+typedef std::vector<IPattern*>::iterator viPtt;
 class GLOSDFactoryBase : public GLOSDFactory
 {
 protected:
@@ -203,6 +208,7 @@ protected:
 	vTXT vecTxts;
 	vUNIT vecUnits;
 	aUNIT mapUnits;
+	vPtt vPatterns;
 	std::vector<int> vecCnt;
 	GLfloat *vVertexArray;
 	GLfloat *vColorArray;
@@ -216,6 +222,8 @@ public:
 	GLOSDFactoryBase(int vWidth = 1920, int vHeight = 1080, int fontSize = 45);
 	virtual ~GLOSDFactoryBase(void);
 	//virtual void Draw(void){};
+	virtual void Add(IPattern* ptt);
+	virtual void Erase(IPattern* ptt);
 	virtual void Add(GLOSDTxt* txt);
 	virtual void Erase(GLOSDTxt* txt);
 	virtual void Add(GLOSDUNITBase* unit);

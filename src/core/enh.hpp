@@ -16,5 +16,6 @@ extern void cuClahe(cv::Mat src, cv::Mat dst, unsigned int uiNrX = 8, unsigned i
 
 extern void cuUnhazed(cv::Mat src, cv::Mat dst);
 
+extern void cuTemporalFilter(cv::Mat src, cv::Mat dst);
 
 #endif 

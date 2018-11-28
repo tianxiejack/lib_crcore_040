@@ -26,6 +26,12 @@
 #include "osa_mutex.h"
 #include "cuda_convert.cuh"
 #include "enh.hpp"
+//#include <ImagesCPU.h>
+//#include <ImagesNPP.h>
+//#include <ImageIO.h>
+//#include <Exceptions.h>
+#include <npp.h>
+#include <helper_cuda.h>
 
 using namespace std;
 using namespace cv;
@@ -892,6 +898,7 @@ __global__ void gpuConvertYUYVtoI420AndZoomx_kernel(unsigned char *src,
 		dV[i*(width>>1)+idx] = cr0;
 	}
 }
+
 __global__ void gpuConvertYUYVtoI420AndZoomxAndOsd_kernel(unsigned char *osd,unsigned char *src,
 		unsigned char *dY,unsigned char *dU,unsigned char *dV,
 		unsigned int width, unsigned int height, int zoomxStep,
@@ -927,6 +934,7 @@ __global__ void gpuConvertYUYVtoI420AndZoomxAndOsd_kernel(unsigned char *osd,uns
 		dV[i*(width>>1)+idx] = (1-auv)*cr0 + auv*vColor;
 	}
 }
+
 __global__ void gpuConvertYUYVtoI420AndZoomx_async_kernel(unsigned char *src,
 		unsigned char *dY,unsigned char *dU,unsigned char *dV,
 		unsigned int width, unsigned int height, unsigned int heightBegin, int zoomxStep)
@@ -961,16 +969,17 @@ __global__ void gpuConvertYUYVtoI420AndZoomxAndOsd_async_kernel(unsigned char *o
 		unsigned int width, unsigned int height, unsigned int heightBegin, int zoomxStep,
 		int yColor, int uColor, int vColor)
 {
-	int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	const int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if (idx*2 >= width) {
 		return;
 	}
 
-	int zoomIx = idx>>zoomxStep;
-	int halfH = height>>1;
-	int halfB = (heightBegin>>1);
+	const int zoomIx = idx>>zoomxStep;
+	const int halfH = height>>1;
+	const int halfB = (heightBegin>>1);
 	for (int i = 0; i < halfH; ++i) {
 		int zoomIy = (i+halfB)>>zoomxStep;
+
 		int y00 = src[zoomIy*2*width*2+zoomIx*4+0];
 		int cb0 = src[zoomIy*2*width*2+zoomIx*4+1];
 		int y01 = meanValuePix2_yuyv(src+zoomIy*2*width*2+zoomIx*4+0);
@@ -1118,6 +1127,17 @@ cudaError_t cuConvertInit(int nChannels, OSA_MutexHndl *mutexLock)
 	printf("Max threads per block: %d\n", prop.maxThreadsPerBlock);
 	printf("Max thread dimensions: (%d, %d, %d)\n", prop.maxThreadsDim[0], prop.maxThreadsDim[1], prop.maxThreadsDim[2]);
 	printf("Max grid dimensions:   (%d, %d, %d)\n", prop.maxGridSize[0], prop.maxGridSize[1], prop.maxGridSize[2]);
+
+    const NppLibraryVersion *libVer   = nppGetLibVersion();
+    printf("NPP Library Version %d.%d.%d\n", libVer->major, libVer->minor, libVer->build);
+
+	int driverVersion, runtimeVersion;
+    cudaDriverGetVersion(&driverVersion);
+    cudaRuntimeGetVersion(&runtimeVersion);
+	printf("CUDA Driver  Version: %d.%d\n", driverVersion/1000, (driverVersion%100)/10);
+	printf("CUDA Runtime Version: %d.%d\n", runtimeVersion/1000, (runtimeVersion%100)/10);
+
+	bool bVal = checkCudaCapabilities(1, 0);
 
 	for(int chId = 0; chId<nChannels; chId++)
 	{
@@ -1924,12 +1944,42 @@ static cudaError_t cuConvert_yuv2bgr_yuyv_async(PCUOBJ pObj, Mat src, Mat &dst, 
 
 	return ret;
 }
+
+static cudaError_t cunppConvert_yuv2bgr_yuyv_async(PCUOBJ pObj, const Mat& src, Mat &dst, int flag)
+{
+	cudaError_t ret = cudaSuccess;
+	OSA_assert(dst.data != NULL);
+	int width = src.cols, height = src.rows;
+	unsigned char *d_src = pObj->d_src;
+	unsigned char *d_dst = (flag == CUT_FLAG_devAlloc) ? dst.data : pObj->d_mem[0];
+
+	NppiSize oSizeROI;
+	oSizeROI.width = width;
+	oSizeROI.height = height;
+	//npp::ImageCPU_8u_C2 oHostSrc;
+	//npp::ImageNPP_8u_C2 oDeviceSrc(oHostSrc);
+	cudaMemcpy(d_src, src.data, width*2, cudaMemcpyHostToDevice);
+	NppStatus stat = nppiYCbCr422ToBGR_8u_C2C3R(d_src, width*2, d_dst, width*3, oSizeROI);
+	if(stat != NPP_NO_ERROR){
+		OSA_printf("%s: stat = %d", __func__, stat);
+		OSA_assert(stat == NPP_NO_ERROR);
+	}
+
+	if(dst.data != d_dst)
+	{
+		cudaMemcpy(dst.data, d_dst, width*3, cudaMemcpyDeviceToHost);
+	}
+
+	return ret;
+}
+
 cudaError_t cuConvert_yuv2bgr_yuyv_async(int chId, Mat src, Mat &dst, int flag)
 {
 	LOCK;
 	cudaError_t ret = cudaSuccess;
 	gObjs[chId].stampBegin = getTickCount();
 	ret = cuConvert_yuv2bgr_yuyv_async(&gObjs[chId], src, dst, flag);
+	//ret = cunppConvert_yuv2bgr_yuyv_async(&gObjs[chId], src, dst, flag);
 	if(ret != cudaSuccess){
 		printf("%s(%i)  : cudaGetLastError() CUDA error: %d\n", __FILE__, __LINE__, (int)cudaGetLastError());
 	}
@@ -1952,6 +2002,7 @@ cudaError_t cuConvertEnh_yuv2bgr_yuyv_async(int chId, Mat src, Mat &dst, int fla
 	}
 	//ret = cudaMemcpy(dst.data,enhSrc.data, src.rows*src.cols*dst.channels(),cudaMemcpyDeviceToDevice);
 	cuClahe(enhSrc, dst, (src.cols==1920)?8:8, (src.cols==1920)?4:8, 3.0f);
+	//cuTemporalFilter(dst, dst);
 	ret = cudaDeviceSynchronize();
 	gObjs[chId].stampEnd = getTickCount();
 	elapsedTimeCals(chId, __func__);
