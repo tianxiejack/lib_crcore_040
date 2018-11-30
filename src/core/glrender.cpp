@@ -1,5 +1,5 @@
 
-#include "Displayer.hpp"
+#include "glrender.hpp"
 //#include "glosd.hpp"
 //#include <GLShaderManager.h>
 //#include <gl.h>
@@ -7,6 +7,7 @@
 #include <cuda_gl_interop.h>
 #include <cuda_runtime_api.h>
 #include <X11/Xlib.h>
+#include <stdarg.h>
 #include "osa_image_queue.h"
 #include "cuda_mem.cpp"
 #include "cuda_convert.cuh"
@@ -14,32 +15,28 @@
 #define RENDMOD_TIME_ON		(0)
 #define TAG_VALUE   (0x10001000)
 
-#ifdef _WIN32
-#pragma comment (lib, "glew32.lib")
-#endif
-
 using namespace cv;
 using namespace cr_osa;
 
-static CRender *gThis = NULL;
+static CGLRender *gThis = NULL;
 
 static GLfloat m_glvVertsDefault[8] = {-1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, 1.0f, -1.0f};
 static GLfloat m_glvTexCoordsDefault[8] = {0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f};
 
-CRender* CRender::createObject()
+CGLRender* CGLRender::createObject()
 {
 	if(gThis == NULL)
-		gThis = new CRender();
+		gThis = new CGLRender();
 	return gThis;
 }
-void CRender::destroyObject(CRender* obj)
+void CGLRender::destroyObject(CGLRender* obj)
 {
 	if(gThis != NULL)
 		delete gThis;
 	gThis = NULL;
 }
 
-CRender::CRender()
+CGLRender::CGLRender()
 :m_mainWinWidth(1920),m_mainWinHeight(1080),m_renderCount(0),
 m_bRun(false),m_bFullScreen(false),m_bDC(false),
  m_bUpdateVertex(false), m_timerRun(false),m_tmRender(0ul),m_waitSync(false),
@@ -59,13 +56,13 @@ m_bRun(false),m_bFullScreen(false),m_bDC(false),
 	//m_thickness = 2;
 }
 
-CRender::~CRender()
+CGLRender::~CGLRender()
 {
 	//destroy();
 	gThis = NULL;
 }
 
-int CRender::create()
+int CGLRender::create()
 {
 	memset(m_renders, 0, sizeof(m_renders));
 	memset(m_curMap, 0, sizeof(m_curMap));
@@ -81,7 +78,7 @@ int CRender::create()
 	return 0;
 }
 
-int CRender::destroy()
+int CGLRender::destroy()
 {
 	int i;
 	cudaError_t et;
@@ -105,7 +102,7 @@ int CRender::destroy()
 	return 0;
 }
 
-int CRender::initRender(bool updateMap)
+int CGLRender::initRender(bool updateMap)
 {
 	int i=0;
 
@@ -154,64 +151,12 @@ int CRender::initRender(bool updateMap)
 	return 0;
 }
 
-void CRender::uninitRender()
+void CGLRender::uninitRender()
 {
 	m_renderCount = 0;
 }
 
-void CRender::_display(void)
-{
-	OSA_assert(gThis->tag == TAG_VALUE);
-	gThis->gl_display();
-}
-
-void CRender::_timeFunc(int value)
-{
-	if(!gThis->m_bRun){
-		gThis->m_timerRun = false;
-		return ;
-	}
-	gThis->m_timerRun = true;;
-	glutTimerFunc((gThis->m_interval/1000000), _timeFunc, value);
-#if RENDMOD_TIME_ON
-	//gThis->_display();
-	glutPostRedisplay();
-#endif
-	if(gThis->m_initPrm.timerfunc != NULL)
-		gThis->m_initPrm.timerfunc(value);
-}
-
-void CRender::disp_fps(){
-    static GLint frames = 0;
-    static GLint t0 = 0;
-    static char  fps_str[20] = {'\0'};
-    GLint t = glutGet(GLUT_ELAPSED_TIME);
-    sprintf(fps_str, "%6.1f FPS\n", 0.0f);
-    if (t - t0 >= 200) {
-        GLfloat seconds = (t - t0) / 1000.0;
-        GLfloat fps = frames / seconds;
-        sprintf(fps_str, "%6.1f FPS\n", fps);
-        printf("%6.1f FPS\n", fps);
-        t0 = t;
-        frames = 0;
-    }
-    glColor3f(0.0, 0.0, 1.0);
-    glRasterPos2f(0.5, 0.5);
-    glutBitmapString(GLUT_BITMAP_HELVETICA_18, (unsigned char *)fps_str);
-    frames++;
-}
-
-void CRender::_reshape(int width, int height)
-{
-	assert(gThis != NULL);
-	glViewport(0, 0, width, height);
-	gThis->m_mainWinWidth = width;
-	gThis->m_mainWinHeight = height;
-	gThis->initRender(false);
-	gThis->gl_updateVertex();
-	gThis->gl_resize();
-}
-void CRender::gl_resize()
+void CGLRender::gl_resize()
 {
 	//glGenBuffers(1, pixBuffObjs);
 	//glBindBuffer(GL_PIXEL_PACK_BUFFER, pixBuffObjs[0]);
@@ -221,13 +166,7 @@ void CRender::gl_resize()
 	//glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 }
 
-void CRender::_close(void)
-{
-	if(gThis->m_initPrm.closefunc != NULL)
-		gThis->m_initPrm.closefunc();
-}
-
-int CRender::init(DS_InitPrm *pPrm)
+int CGLRender::init(DS_InitPrm *pPrm)
 {
 	OSA_assert(this == gThis);
 	if(pPrm != NULL)
@@ -243,37 +182,6 @@ int CRender::init(DS_InitPrm *pPrm)
 		m_initPrm.nQueueSize = 2;
 	m_interval = (1000000000ul)/(uint64)m_initPrm.disFPS;
 	//memcpy(m_videoSize, m_initPrm.channelsSize, sizeof(m_videoSize));
-
-    //glutInitWindowPosition(m_initPrm.winPosX, m_initPrm.winPosY);
-    glutInitWindowSize(m_mainWinWidth, m_mainWinHeight);
-    glutCreateWindow("DSS");
-	glutDisplayFunc(_display);
-	if(m_initPrm.idlefunc != NULL)
-		glutIdleFunc(m_initPrm.idlefunc);
-	glutReshapeFunc(_reshape);
-
-	if(m_initPrm.keyboardfunc != NULL)
-		glutKeyboardFunc(m_initPrm.keyboardfunc);
-	if(m_initPrm.keySpecialfunc != NULL)
-		glutSpecialFunc(m_initPrm.keySpecialfunc);
-
-	//mouse event:
-	if(m_initPrm.mousefunc != NULL)
-		glutMouseFunc(m_initPrm.mousefunc);//GLUT_LEFT_BUTTON GLUT_MIDDLE_BUTTON GLUT_RIGHT_BUTTON; GLUT_DOWN GLUT_UP
-	//glutMotionFunc();//button down
-	//glutPassiveMotionFunc();//button up
-	//glutEntryFunc();//state GLUT_LEFT, GLUT_ENTERED
-
-	if(m_initPrm.visibilityfunc != NULL)
-		glutVisibilityFunc(m_initPrm.visibilityfunc);
-
-	//setFullScreen(true);
-	if(m_initPrm.bFullScreen){
-		glutFullScreen();
-		m_bFullScreen = true;
-		setFullScreen(m_bFullScreen);
-	}
-	glutCloseFunc(_close);
 
 	cv::Size screenSize(m_mainWinWidth, m_mainWinHeight);// = getScreenSize();
 	for(int i=0; i<DS_DC_CNT; i++){
@@ -307,7 +215,7 @@ int CRender::init(DS_InitPrm *pPrm)
 	return 0;
 }
 
-int CRender::get_videoSize(int chId, DS_Size &size)
+int CGLRender::get_videoSize(int chId, DS_Size &size)
 {
 	if(chId < 0 || chId >= DS_CHAN_MAX)
 		return -1;
@@ -315,7 +223,7 @@ int CRender::get_videoSize(int chId, DS_Size &size)
 
 	return 0;
 }
-int CRender::dynamic_config(DS_CFG type, int iPrm, void* pPrm)
+int CGLRender::dynamic_config(DS_CFG type, int iPrm, void* pPrm)
 {
 	int iRet = 0;
 	int chId;
@@ -439,7 +347,7 @@ int CRender::dynamic_config(DS_CFG type, int iPrm, void* pPrm)
 	return iRet;
 }
 
-GLuint CRender::async_display(int chId, int width, int height, int channels)
+GLuint CGLRender::async_display(int chId, int width, int height, int channels)
 {
 	assert(chId>=0 && chId<DS_CHAN_MAX);
 
@@ -465,35 +373,20 @@ GLuint CRender::async_display(int chId, int width, int height, int channels)
 	return buffId_input[chId];
 }
 
-void CRender::run()
+void CGLRender::run()
 {
 	m_bRun = true;
 	m_timerRun = false;
-	//glutSetOption();
-	//glutMainLoopEvent();
-	//glutMainLoop();
-#if (!RENDMOD_TIME_ON)
-	if(m_initPrm.timerfunc != NULL)
-		glutTimerFunc(0, _timeFunc, m_initPrm.timerfunc_value);
-#endif
-
-	glutPostRedisplay();
 }
 
-void CRender::stop()
+void CGLRender::stop()
 {
 	m_bRun = false;
 }
 
-int CRender::setFullScreen(bool bFull)
+int CGLRender::setFullScreen(bool bFull)
 {
-	if(bFull)
-		glutFullScreen();
-	else{
-
-	}
 	m_bFullScreen = bFull;
-
 	return 0;
 }
 
@@ -518,7 +411,7 @@ static int getDisplayResolution(const char* display_name,uint32_t &width, uint32
     return 0;
 }
 
-int CRender::gl_create()
+int CGLRender::gl_create()
 {
 	char strParams[][32] = {"DS_RENDER", "-display", ":0"};
 	char *argv[3];
@@ -532,22 +425,15 @@ int CRender::gl_create()
 		m_mainWinHeight = screenHeight;
 	}
 	OSA_printf("screen resolution: %d x %d", screenWidth, screenHeight);
-   // GLUT init
-    glutInit(&argc, argv);
-	//Double, Use glutSwapBuffers() to show
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_MULTISAMPLE);
-	//Single, Use glFlush() to show
-	//glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB );
 
 	// Blue background
 	glClearColor(0.0f, 0.0f, 0.01f, 0.0f );
 
 	return 0;
 }
-void CRender::gl_destroy()
+void CGLRender::gl_destroy()
 {
 	gl_uninit();
-	glutLeaveMainLoop();
 	for(int chId=0; chId<DS_CHAN_MAX; chId++)
 		cudaResource_UnregisterBuffer(chId);
 }
@@ -555,7 +441,7 @@ void CRender::gl_destroy()
 #define TEXTURE_ROTATE (0)
 #define ATTRIB_VERTEX 3
 #define ATTRIB_TEXTURE 4
-void CRender::gl_init()
+void CGLRender::gl_init()
 {
 	int i;
 
@@ -617,12 +503,9 @@ void CRender::gl_init()
 	//glEnable(GL_LINE_SMOOTH);
 	//glHint(GL_LINE_SMOOTH_HINT, GL_DONT_CARE);
 	glClear(GL_COLOR_BUFFER_BIT);
-
-	if(m_initPrm.initfunc != NULL)
-		m_initPrm.initfunc();
 }
 
-void CRender::gl_uninit()
+void CGLRender::gl_uninit()
 {
 	gl_unloadProgram();
 
@@ -633,7 +516,7 @@ void CRender::gl_uninit()
 
 }
 
-int CRender::gl_updateVertex(void)
+int CGLRender::gl_updateVertex(void)
 {
 	int iRet = 0;
 	int winId, chId, i;
@@ -691,7 +574,7 @@ int CRender::gl_updateVertex(void)
 	return iRet;
 }
 
-void CRender::gl_updateTexDC()
+void CGLRender::gl_updateTexDC()
 {
 	if(m_bDC)
 	{
@@ -728,7 +611,7 @@ void CRender::gl_updateTexDC()
 		}
 	}
 }
-void CRender::gl_updateTexVideo()
+void CGLRender::gl_updateTexVideo()
 {
 	static int bCreate[DS_CHAN_MAX] = {0,0,0,0};
 	static unsigned long nCnt[DS_CHAN_MAX] = {0,0,0,0};
@@ -837,7 +720,7 @@ void CRender::gl_updateTexVideo()
 	}
 }
 
-void CRender::UpdateOSD(void)
+void CGLRender::UpdateOSD(void)
 {
 	//cv::line(m_imgOsd[0], cv::Point(300, 300), cv::Point(800, 300), cv::Scalar(255), 2, CV_AA);
 #if(0)
@@ -955,7 +838,7 @@ void CRender::UpdateOSD(void)
 #endif
 }
 
-void CRender::gl_display(void)
+void CGLRender::gl_display(void)
 {
 	int winId, chId;
 	GLint glProg = 0;
@@ -1169,7 +1052,7 @@ void CRender::gl_display(void)
 #endif
 	}*/
 
-	glutSwapBuffers();
+	//glutSwapBuffers();
 	tStamp[6] = getTickCount();
 	if(m_initPrm.renderfunc != NULL)
 		m_initPrm.renderfunc(RUN_LEAVE, 0, 0);
@@ -1212,7 +1095,7 @@ void CRender::gl_display(void)
 	}
 #else
 	m_timerRun = true;
-	glutPostRedisplay();
+	//glutPostRedisplay();
 #endif
 }
 
@@ -1324,7 +1207,7 @@ static const char *szPolarityShaderRGBFP = ""
 		"	vColor.a = (1-ra0*ra1*ga0*ga1*ba0*ba1)*fAlpha;"
 		"	gl_FragColor = vColor;"
 		"}";
-int CRender::gl_loadProgram()
+int CGLRender::gl_loadProgram()
 {
 	int iRet = OSA_SOK;
 	m_glProgram[0] = gltLoadShaderPairWithAttributes(szDefaultShaderVP, szDefaultShaderFP, 2, ATTRIB_VERTEX, "vVertex", ATTRIB_TEXTURE, "vTexCoords");
@@ -1336,7 +1219,7 @@ int CRender::gl_loadProgram()
 	return iRet;
 }
 
-int CRender::gl_unloadProgram()
+int CGLRender::gl_unloadProgram()
 {
 	int iRet = OSA_SOK;
 	int i;
@@ -1350,7 +1233,7 @@ int CRender::gl_unloadProgram()
 
 //////////////////////////////////////////////////////////////////////////
 // Load the shader from the source text
-bool CRender::gltLoadShaderSrc(const char *szShaderSrc, GLuint shader)
+bool CGLRender::gltLoadShaderSrc(const char *szShaderSrc, GLuint shader)
 {
 	if(szShaderSrc == NULL)
 		return false;
@@ -1367,7 +1250,7 @@ static GLubyte shaderText[MAX_SHADER_LENGTH];
 ////////////////////////////////////////////////////////////////
 // Load the shader from the specified file. Returns false if the
 // shader could not be loaded
-bool CRender::gltLoadShaderFile(const char *szFile, GLuint shader)
+bool CGLRender::gltLoadShaderFile(const char *szFile, GLuint shader)
 {
 	GLint shaderLength = 0;
 	FILE *fp;
@@ -1414,7 +1297,7 @@ bool CRender::gltLoadShaderFile(const char *szFile, GLuint shader)
 // Load a pair of shaders, compile, and link together. Specify the complete
 // source text for each shader. After the shader names, specify the number
 // of attributes, followed by the index and attribute name of each attribute
-GLuint CRender::gltLoadShaderPairWithAttributes(const char *szVertexProg, const char *szFragmentProg, ...)
+GLuint CGLRender::gltLoadShaderPairWithAttributes(const char *szVertexProg, const char *szFragmentProg, ...)
 {
 	// Temporary Shader objects
 	GLuint hVertexShader;

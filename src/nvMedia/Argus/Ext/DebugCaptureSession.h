@@ -26,6 +26,51 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "NvLogging.h"
+#ifndef _ARGUS_DEBUG_CAPTURE_SESSION_H
+#define _ARGUS_DEBUG_CAPTURE_SESSION_H
 
-int log_level = LOG_LEVEL_DEBUG;
+namespace Argus
+{
+
+/**
+ * The Ext::DebugCaptureSession extension adds internal method to
+ * the Argus driver. It introduces one new interface:
+ *   - IDebugCaptureSession: used to dump session runtime information
+ */
+
+DEFINE_UUID(ExtensionName, EXT_DEBUG_CAPTURE_SESSION,
+                                             1fee5f03,2ea9,4558,8e92,c2,4b,0b,82,b9,af);
+
+namespace Ext
+{
+
+/**
+ * @class IDebugCaptureSession
+ *
+ * Interface used to dump session runtime information
+ *
+ * This interface is available from the CaptureSession class.
+ */
+
+DEFINE_UUID(InterfaceID, IID_DEBUG_CAPTURE_SESSION, beaa075b,dcf7,4e26,b255,3c,98,db,03,5b,99);
+
+class IDebugCaptureSession : public Interface
+{
+public:
+    static const InterfaceID& id() { return IID_DEBUG_CAPTURE_SESSION; }
+
+    /**
+     * Returns session runtime information to the specified file descriptor.
+     */
+    virtual Status dump(int32_t fd) const = 0;
+
+protected:
+    ~IDebugCaptureSession() {}
+};
+
+} // namespace Ext
+
+} // namespace Argus
+
+#endif
+

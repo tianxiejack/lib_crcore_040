@@ -26,6 +26,63 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "NvLogging.h"
+#include <cuda.h>
+#include "NvAnalysis.h"
 
-int log_level = LOG_LEVEL_DEBUG;
+#define BOX_W 32
+#define BOX_H 32
+
+__global__ void
+addLabelsKernel(int *pDevPtr, int pitch)
+{
+    int row = blockIdx.y * blockDim.y + threadIdx.y + BOX_H;
+    int col = blockIdx.x * blockDim.x + threadIdx.x + BOX_W;
+    char *pElement = (char *)pDevPtr + row * pitch + col;
+
+    pElement[0] = 0;
+
+    return;
+}
+
+int
+addLabels(CUdeviceptr pDevPtr, int pitch)
+{
+    dim3 threadsPerBlock(BOX_W, BOX_H);
+    dim3 blocks(1,1);
+
+    addLabelsKernel<<<blocks,threadsPerBlock>>>((int *)pDevPtr, pitch);
+
+    return 0;
+}
+
+
+__global__ void
+convertIntToFloatKernel(CUdeviceptr pDevPtr, int width, int height,
+                void* cuda_buf, int pitch)
+{
+    float *pdata = (float *)cuda_buf;
+    char *psrcdata = (char *)pDevPtr;
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (col < width && row < height)
+    {
+        for (int k = 0; k < 3; k++)
+        {
+            pdata[width * height * k + row * width + col] =
+                (float)*(psrcdata + row * pitch + col * 4 + (3 - 1 - k));
+        }
+    }
+}
+
+int convertIntToFloat(CUdeviceptr pDevPtr, int width, int height,
+        void* cuda_buf, int pitch)
+{
+    dim3 threadsPerBlock(32, 32);
+    dim3 blocks(width/threadsPerBlock.x, height/threadsPerBlock.y);
+
+    convertIntToFloatKernel<<<blocks, threadsPerBlock>>>(pDevPtr, width,
+                height, cuda_buf, pitch);
+
+    return 0;
+}

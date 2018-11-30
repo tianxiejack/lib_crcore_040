@@ -553,6 +553,18 @@ public:
 		queue.clear();
 		return OSA_SOK;
 	}
+	__inline__ uint64 getCurrentTime(void)
+	{
+		uint64 ret = 0l;
+		//struct timeval now;
+		//gettimeofday(&now, NULL);
+		//ret = (uint64)now.tv_sec * 1000000000ul + (uint64)now.tv_usec*1000ul;
+		struct timespec ts;
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+		ret = (uint64)ts.tv_sec * 1000000000ul + (uint64)ts.tv_nsec;
+		return ret;
+	}
+
 	int input(int chId,unsigned char *data, const struct v4l2_buffer *vbuf, cv::Size vSize, int format, int channels)
 	{
 		int ret = OSA_SOK;
@@ -577,6 +589,7 @@ public:
 			bufInfo->timestampCap = (uint64)vbuf->timestamp.tv_sec*1000000000ul
 					+ (uint64)vbuf->timestamp.tv_usec*1000ul;
 			bufInfo->timestamp = (uint64_t)getTickCount();
+			//OSA_printf("bufInfo->timestampCap %ld %ld %ld",bufInfo->timestampCap, bufInfo->timestamp, getCurrentTime());
 			bufInfo->virtAddr = data;
 			image_queue_putFull(hndl, bufInfo);
 			//OSA_printf("%s %d: %d x %d c%d", __func__, __LINE__, bufInfo->width, bufInfo->height, bufInfo->channels);
@@ -714,7 +727,7 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 				dsInit.channelsSize[chId].c = 3;
 		}
 		render = CRender::createObject();
-		render->m_cumutex = cumutex;
+		//render->m_cumutex = cumutex;
 		render->create();
 		render->init(&dsInit);
 		for(chId=0; chId<channels; chId++){

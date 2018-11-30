@@ -26,6 +26,18 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "NvLogging.h"
+#ifndef _EGLSTREAM_H
+#define _EGLSTREAM_H
 
-int log_level = LOG_LEVEL_DEBUG;
+/**
+ * @file EGLStream.h
+ * This is the main include file for the EGLStream utility library.
+ */
+
+#include "EGLStream/ArgusCaptureMetadata.h"
+#include "EGLStream/FrameConsumer.h"
+#include "EGLStream/Frame.h"
+#include "EGLStream/Image.h"
+#include "EGLStream/MetadataContainer.h"
+
+#endif

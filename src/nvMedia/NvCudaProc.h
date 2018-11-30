@@ -26,6 +26,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "NvLogging.h"
+#ifndef __NVCUDAPROC_H
+#define __NVCUDAPROC_H
 
-int log_level = LOG_LEVEL_DEBUG;
+void HandleEGLImage(void* pEGLImage);
+
+void mapEGLImage2Float(void* pEGLImage, int width, int height, void* cuda_buf);
+
+#endif

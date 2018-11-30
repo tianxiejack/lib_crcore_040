@@ -1,14 +1,13 @@
 
-#ifndef DISPLAYER_HPP_
-#define DISPLAYER_HPP_
+#ifndef GL_RENDER_HPP_
+#define GL_RENDER_HPP_
 
 #define DS_RENDER_MAX		(9)
 #define DS_CHAN_MAX         (4)
 
 #include <opencv2/opencv.hpp>
-#include <glew.h>
-#include <glut.h>
-#include <freeglut_ext.h>
+//#include <GL/gl.h>
+#include <GL/glew.h>
 #include "osa_buf.h"
 
 #define DS_DC_CNT		(1)
@@ -55,28 +54,17 @@ typedef struct _ds_init_param{
 	int nChannels;
 	int nQueueSize;
 	int memType;
-	//void (*displayfunc)(void);
-	void (*mousefunc)(int button, int state, int x, int y);
-	//void (*reshapefunc)(int width, int height);
-	void (*keyboardfunc)(unsigned char key, int x, int y);
-	void (*keySpecialfunc)( int, int, int );
-	void (*visibilityfunc)(int state);
-	void (*timerfunc)(int value);
-	void (*idlefunc)(void);
-	void (*closefunc)(void);
 	void (*renderfunc)(int stepIdx, int stepSub, int context);
-	void (*initfunc)(void);
-	int timerfunc_value;//context
 }DS_InitPrm;
 
-class CRender
+class CGLRender
 {
 	int tag;
-	CRender();
-	~CRender();
+	CGLRender();
+	~CGLRender();
 public:
-	static CRender* createObject();
-	static void destroyObject(CRender* obj);
+	static CGLRender* createObject();
+	static void destroyObject(CGLRender* obj);
 	int create();
 	int destroy();
 	int init(DS_InitPrm *pPrm);
@@ -109,7 +97,6 @@ public:
 	int get_videoSize(int chId, DS_Size &size);
 	GLuint async_display(int chId, int width, int height, int channels);
 	int setFullScreen(bool bFull);
-	void disp_fps();
 	int m_mainWinWidth;
 	int m_mainWinHeight;
 	bool m_bRun;
@@ -135,10 +122,6 @@ protected:
 	void uninitRender();
 
 protected:
-	static void _display(void);
-	static void _timeFunc(int value);
-	static void _reshape(int width, int height);
-	static void _close(void);
 	void gl_resize(void);
 
 protected:
@@ -177,4 +160,4 @@ private:
 	bool m_waitSync;
 };
 
-#endif /* DISPLAYER_HPP_ */
+#endif /* GL_RENDER_HPP_ */

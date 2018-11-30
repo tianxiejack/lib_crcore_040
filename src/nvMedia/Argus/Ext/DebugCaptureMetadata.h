@@ -26,6 +26,51 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "NvLogging.h"
+#ifndef _ARGUS_DEBUG_CAPTURE_METADATA_H
+#define _ARGUS_DEBUG_CAPTURE_METADATA_H
 
-int log_level = LOG_LEVEL_DEBUG;
+namespace Argus
+{
+
+/**
+ * The Ext::DebugCaptureMetadata extension adds internal capture metadata to
+ * the Argus driver. It introduces one new interface:
+ *   - IDebugCaptureMetadata: used to get hardware capture count for a Request.
+ */
+
+DEFINE_UUID(ExtensionName, EXT_DEBUG_CAPTURE_METADATA, 37afdbd9,0020,4f91,957b,46,ea,eb,79,80,c7);
+namespace Ext
+{
+
+/**
+ * @class IDebugCaptureMetadata
+ *
+ * Interface used to query hardware capture count for a request.
+ *
+ * This interface is available from the CaptureMetadata class.
+ */
+
+DEFINE_UUID(InterfaceID, IID_DEBUG_CAPTURE_METADATA,
+                             c21a7ba1,2b3f,4275,8469,a2,56,34,93,53,93);
+
+class IDebugCaptureMetadata : public Interface
+{
+public:
+    static const InterfaceID& id() { return IID_DEBUG_CAPTURE_METADATA; }
+
+    /**
+     * Returns hardware capture count for a request.
+     * Hardware capture counter begin counting after sensor opened.
+     */
+    virtual uint32_t getHwFrameCount() const = 0;
+
+protected:
+    ~IDebugCaptureMetadata() {}
+};
+
+} // namespace Ext
+
+} // namespace Argus
+
+#endif
+

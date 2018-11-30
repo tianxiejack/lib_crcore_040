@@ -26,6 +26,14 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "NvLogging.h"
+#ifndef __NVANALYSIS_H
+#define __NVANALYSIS_H
 
-int log_level = LOG_LEVEL_DEBUG;
+//interface to cuda kernel
+//@pDevPtr: ptr to buffer data
+//@pitch: stride per line
+int addLabels(CUdeviceptr pDevPtr, int pitch);
+
+int convertIntToFloat(CUdeviceptr pDevPtr, int width, int height,
+                void* cuda_buf, int pitch);
+#endif

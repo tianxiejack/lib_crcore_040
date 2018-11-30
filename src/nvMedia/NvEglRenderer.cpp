@@ -223,6 +223,7 @@ NvEglRenderer::renderThread(void *arg)
         COMP_ERROR_MSG("Got Error in eglCreateContext " << eglGetError());
         goto error;
     }
+    COMP_DEBUG_MSG("eglCreateContext success");
     renderer->egl_surface =
         eglCreateWindowSurface(renderer->egl_display, renderer->egl_config,
                 (EGLNativeWindowType) renderer->x_window, NULL);
@@ -231,6 +232,7 @@ NvEglRenderer::renderThread(void *arg)
         COMP_ERROR_MSG("Error in creating egl surface " << eglGetError());
         goto error;
     }
+    COMP_DEBUG_MSG("eglCreateWindowSurface success");
 
     eglMakeCurrent(renderer->egl_display, renderer->egl_surface,
                     renderer->egl_surface, renderer->egl_context);
@@ -239,14 +241,17 @@ NvEglRenderer::renderThread(void *arg)
         COMP_ERROR_MSG("Error in eglMakeCurrent " << eglGetError());
         goto error;
     }
+    COMP_DEBUG_MSG("eglMakeCurrent success");
 
     if (renderer->InitializeShaders() < 0)
     {
         COMP_ERROR_MSG("Error while initializing shaders");
         goto error;
     }
+    COMP_DEBUG_MSG("renderer->InitializeShaders() success");
 
     renderer->create_texture();
+    COMP_DEBUG_MSG("renderer->create_texture() success");
 
     pthread_mutex_lock(&renderer->render_lock);
     pthread_cond_broadcast(&renderer->render_cond);
@@ -616,13 +621,17 @@ NvEglRenderer::InitializeShaders(void)
         "uniform samplerExternalOES tex; \n" "void main() {\n"
         "gl_FragColor = texture2D(tex, interp_tc);\n" "}\n";
 
+    COMP_DEBUG_MSG("Shaders intialize...");
     glEnable(GL_SCISSOR_TEST);
+    COMP_DEBUG_MSG("glEnable(GL_SCISSOR_TEST)");
     program = glCreateProgram();
+    COMP_DEBUG_MSG("glCreateProgram");
 
     CreateShader(program, GL_VERTEX_SHADER, kVertexShader,
                  sizeof(kVertexShader));
     CreateShader(program, GL_FRAGMENT_SHADER, kFragmentShader,
                  sizeof(kFragmentShader));
+    COMP_DEBUG_MSG("CreateShader");
 
     glLinkProgram(program);
     if (glGetError() != GL_NO_ERROR)
@@ -630,6 +639,7 @@ NvEglRenderer::InitializeShaders(void)
         COMP_ERROR_MSG("Got gl error as " << glGetError());
         return -1;
     }
+    COMP_DEBUG_MSG("glLinkProgram");
 
     glGetProgramiv(program, GL_LINK_STATUS, &result);
     if (!result)
@@ -638,6 +648,7 @@ NvEglRenderer::InitializeShaders(void)
         COMP_ERROR_MSG("Error while Linking " << log);
         return -1;
     }
+    COMP_DEBUG_MSG("glGetProgramiv");
 
     glUseProgram(program);
     if (glGetError() != GL_NO_ERROR)
@@ -645,6 +656,7 @@ NvEglRenderer::InitializeShaders(void)
         COMP_ERROR_MSG("Got gl error as " << glGetError());
         return -1;
     }
+    COMP_DEBUG_MSG("glUseProgram");
 
     pos_location = glGetAttribLocation(program, "in_pos");
 
