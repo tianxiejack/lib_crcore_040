@@ -1,8 +1,5 @@
 
 #include "Displayer.hpp"
-//#include "glosd.hpp"
-//#include <GLShaderManager.h>
-//#include <gl.h>
 #include <cuda.h>
 #include <cuda_gl_interop.h>
 #include <cuda_runtime_api.h>
@@ -11,20 +8,25 @@
 #include "cuda_mem.cpp"
 #include "cuda_convert.cuh"
 
-#define RENDMOD_TIME_ON		(0)
 #define TAG_VALUE   (0x10001000)
-
-#ifdef _WIN32
-#pragma comment (lib, "glew32.lib")
-#endif
 
 using namespace cv;
 using namespace cr_osa;
 
 static CRender *gThis = NULL;
 
-static GLfloat m_glvVertsDefault[8] = {-1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, 1.0f, -1.0f};
-static GLfloat m_glvTexCoordsDefault[8] = {0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f};
+static const GLfloat defaultVertices[8] = {
+    -1.f, -1.f,
+    1.f, -1.f,
+    -1.f, 1.f,
+    1.f, 1.f
+};
+static const GLfloat defaultTextureCoords[8] = {
+    0.0f, 1.0f,
+    1.0f, 1.0f,
+    0.0f, 0.0f,
+    1.0f, 0.0f
+};
 
 CRender* CRender::createObject()
 {
@@ -40,9 +42,8 @@ void CRender::destroyObject(CRender* obj)
 }
 
 CRender::CRender()
-:m_mainWinWidth(1920),m_mainWinHeight(1080),m_renderCount(0),
-m_bRun(false),m_bFullScreen(false),m_bDC(false),
- m_bUpdateVertex(false), m_timerRun(false),m_tmRender(0ul),m_waitSync(false),
+:m_mainWinWidth(0),m_mainWinHeight(0),m_renderCount(0),m_bFullScreen(false),
+ m_bUpdateVertex(false), m_tmRender(0ul),m_waitSync(false),
  m_telapse(5.0)
 {
 	tag = TAG_VALUE;
@@ -55,8 +56,6 @@ m_bRun(false),m_bFullScreen(false),m_bDC(false),
 		m_blendMap[chId] = -1;
 		m_maskMap[chId] = -1;
 	}
-	m_dcColor = cv::Scalar_<float>(255, 255, 255, 255);
-	//m_thickness = 2;
 }
 
 CRender::~CRender()
@@ -65,7 +64,26 @@ CRender::~CRender()
 	gThis = NULL;
 }
 
-int CRender::create()
+static int getDisplayResolution(const char* display_name,uint32_t &width, uint32_t &height)
+{
+    int screen_num;
+    Display * x_display = XOpenDisplay(display_name);
+    if (NULL == x_display)
+    {
+        return  -1;
+    }
+
+    screen_num = DefaultScreen(x_display);
+    width = DisplayWidth(x_display, screen_num);
+    height = DisplayHeight(x_display, screen_num);
+
+    XCloseDisplay(x_display);
+    x_display = NULL;
+
+    return 0;
+}
+
+int CRender::create(DS_InitPrm *pPrm)
 {
 	memset(m_renders, 0, sizeof(m_renders));
 	memset(m_curMap, 0, sizeof(m_curMap));
@@ -74,34 +92,144 @@ int CRender::create()
 	}
 	memset(&m_videoSize[0], 0, sizeof(DS_Size)*DS_CHAN_MAX);
 
-	gl_create();
+	char strParams[][32] = {"DS_RENDER", "-display", ":0"};
+	char *argv[3];
+	int argc = 3;
+	for(int i=0; i<argc; i++)
+		argv[i] = strParams[i];
+	uint32_t screenWidth = 0, screenHeight = 0;
+	if(getDisplayResolution(strParams[2], screenWidth, screenHeight) == 0)
+	{
+		m_mainWinWidth = screenWidth;
+		m_mainWinHeight = screenHeight;
+	}
+	OSA_printf("screen resolution: %d x %d", screenWidth, screenHeight);
+   // GLUT init
+    glutInit(&argc, argv);
+	//Double, Use glutSwapBuffers() to show
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_MULTISAMPLE);
+	//Single, Use glFlush() to show
+	//glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB );
+
+	// Blue background
+	glClearColor(0.0f, 0.0f, 0.01f, 0.0f );
 
 	OSA_mutexCreate(&m_mutex);
+
+	if(pPrm != NULL)
+		memcpy(&m_initPrm, pPrm, sizeof(DS_InitPrm));
+
+	if(m_initPrm.winWidth > 0)
+		m_mainWinWidth = m_initPrm.winWidth;
+	if(m_initPrm.winHeight > 0)
+		m_mainWinHeight = m_initPrm.winHeight;
+	if(m_initPrm.disFPS<=0)
+		m_initPrm.disFPS = 25;
+	if(m_initPrm.nQueueSize < 2)
+		m_initPrm.nQueueSize = 2;
+	m_interval = (1000000000ul)/(uint64)m_initPrm.disFPS;
+	//memcpy(m_videoSize, m_initPrm.channelsSize, sizeof(m_videoSize));
+
+    //glutInitWindowPosition(m_initPrm.winPosX, m_initPrm.winPosY);
+    glutInitWindowSize(m_mainWinWidth, m_mainWinHeight);
+    int winId = glutCreateWindow("DSS");
+    OSA_assert(winId > 0);
+    //int subId = glutCreateSubWindow( winId, 0, 0, m_mainWinWidth, m_mainWinHeight );
+    //OSA_assert(subId > 0);
+    //glutSetWindow(subId);
+	glutDisplayFunc(_display);
+	glutReshapeFunc(_reshape);
+
+	if(m_initPrm.keyboardfunc != NULL)
+		glutKeyboardFunc(m_initPrm.keyboardfunc);
+	if(m_initPrm.keySpecialfunc != NULL)
+		glutSpecialFunc(m_initPrm.keySpecialfunc);
+
+	//mouse event:
+	if(m_initPrm.mousefunc != NULL)
+		glutMouseFunc(m_initPrm.mousefunc);//GLUT_LEFT_BUTTON GLUT_MIDDLE_BUTTON GLUT_RIGHT_BUTTON; GLUT_DOWN GLUT_UP
+	//glutMotionFunc();//button down
+	//glutPassiveMotionFunc();//button up
+	//glutEntryFunc();//state GLUT_LEFT, GLUT_ENTERED
+
+	if(m_initPrm.visibilityfunc != NULL)
+		glutVisibilityFunc(m_initPrm.visibilityfunc);
+
+	//setFullScreen(true);
+	if(m_initPrm.bFullScreen){
+		glutFullScreen();
+		m_bFullScreen = true;
+		setFullScreen(m_bFullScreen);
+	}
+	glutCloseFunc(_close);
+
+	initRender();
+	gl_updateVertex();
+
+	GLenum err = glewInit();
+	if (GLEW_OK != err) {
+		fprintf(stderr, "GLEW Error: %s\n", glewGetErrorString(err));
+		return -1;
+	}
+
+	gl_loadProgram();
+
+	int i;
+	glGenBuffers(DS_CHAN_MAX, buffId_input);
+	glGenTextures(DS_CHAN_MAX, textureId_input);
+	for(i=0; i<DS_CHAN_MAX; i++)
+	{
+		glBindTexture(GL_TEXTURE_2D, textureId_input[i]);
+		assert(glIsTexture(textureId_input[i]));
+		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);//GL_NEAREST);//GL_NEAREST_MIPMAP_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);//GL_NEAREST);//GL_NEAREST_MIPMAP_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);//GL_CLAMP);//GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);//GL_CLAMP);//GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_2D, 0, 3, 1920, 1080, 0, GL_BGR_EXT, GL_UNSIGNED_BYTE, NULL);
+	}
+
+	for(i=0; i<DS_CHAN_MAX; i++){
+		m_glmat44fTrans[i] = cv::Matx44f::eye();
+	}
+	for(i=0; i<DS_CHAN_MAX*DS_CHAN_MAX; i++){
+		m_glmat44fBlend[i] = cv::Matx44f::eye();
+		m_glBlendPrm[i].fAlpha = 0.5f;
+		m_glBlendPrm[i].thr0Min = 0;
+		m_glBlendPrm[i].thr0Max = 0;
+		m_glBlendPrm[i].thr1Min = 0;
+		m_glBlendPrm[i].thr1Max = 0;
+	}
+
+	//glEnable(GL_LINE_SMOOTH);
+	//glHint(GL_LINE_SMOOTH_HINT, GL_DONT_CARE);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	for(int chId=0; chId<m_initPrm.nChannels; chId++){
+		image_queue_create(&m_bufQue[chId], m_initPrm.nQueueSize,
+				m_initPrm.channelsSize[chId].w*m_initPrm.channelsSize[chId].h*m_initPrm.channelsSize[chId].c,
+				m_initPrm.memType);
+		for(int i=0; i<m_bufQue[chId].numBuf; i++){
+			m_bufQue[chId].bufInfo[i].width = m_initPrm.channelsSize[chId].w;
+			m_bufQue[chId].bufInfo[i].height = m_initPrm.channelsSize[chId].h;
+			m_bufQue[chId].bufInfo[i].channels = m_initPrm.channelsSize[chId].c;
+		}
+	}
 
 	return 0;
 }
 
 int CRender::destroy()
 {
-	int i;
 	cudaError_t et;
-
-	stop();
-
-	gl_destroy();
-
-	uninitRender();
-
+	glutLeaveMainLoop();
+	gl_unloadProgram();
+	glDeleteTextures(DS_CHAN_MAX, textureId_input);
+	glDeleteBuffers(DS_CHAN_MAX, buffId_input);
+	for(int chId=0; chId<DS_CHAN_MAX; chId++)
+		cudaResource_UnregisterBuffer(chId);
 	for(int chId=0; chId<m_initPrm.nChannels; chId++)
 		image_queue_delete(&m_bufQue[chId]);
-
 	OSA_mutexDelete(&m_mutex);
-	for(i=0; i<DS_DC_CNT; i++){
-		if(m_imgDC[i].data != NULL)
-			cudaFreeHost(m_imgDC[i].data);
-		m_imgDC[i].data = NULL;
-	}
-
 	return 0;
 }
 
@@ -154,31 +282,10 @@ int CRender::initRender(bool updateMap)
 	return 0;
 }
 
-void CRender::uninitRender()
-{
-	m_renderCount = 0;
-}
-
 void CRender::_display(void)
 {
 	OSA_assert(gThis->tag == TAG_VALUE);
 	gThis->gl_display();
-}
-
-void CRender::_timeFunc(int value)
-{
-	if(!gThis->m_bRun){
-		gThis->m_timerRun = false;
-		return ;
-	}
-	gThis->m_timerRun = true;;
-	glutTimerFunc((gThis->m_interval/1000000), _timeFunc, value);
-#if RENDMOD_TIME_ON
-	//gThis->_display();
-	glutPostRedisplay();
-#endif
-	if(gThis->m_initPrm.timerfunc != NULL)
-		gThis->m_initPrm.timerfunc(value);
 }
 
 void CRender::disp_fps(){
@@ -204,21 +311,10 @@ void CRender::disp_fps(){
 void CRender::_reshape(int width, int height)
 {
 	assert(gThis != NULL);
-	glViewport(0, 0, width, height);
 	gThis->m_mainWinWidth = width;
 	gThis->m_mainWinHeight = height;
 	gThis->initRender(false);
 	gThis->gl_updateVertex();
-	gThis->gl_resize();
-}
-void CRender::gl_resize()
-{
-	//glGenBuffers(1, pixBuffObjs);
-	//glBindBuffer(GL_PIXEL_PACK_BUFFER, pixBuffObjs[0]);
-	//glBufferData(GL_PIXEL_PACK_BUFFER,
-	//	m_mainWinWidth*m_mainWinHeight*3,
-	//	NULL, GL_DYNAMIC_COPY);
-	//glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 }
 
 void CRender::_close(void)
@@ -227,98 +323,6 @@ void CRender::_close(void)
 		gThis->m_initPrm.closefunc();
 }
 
-int CRender::init(DS_InitPrm *pPrm)
-{
-	OSA_assert(this == gThis);
-	if(pPrm != NULL)
-		memcpy(&m_initPrm, pPrm, sizeof(DS_InitPrm));
-
-	if(m_initPrm.winWidth > 0)
-		m_mainWinWidth = m_initPrm.winWidth;
-	if(m_initPrm.winHeight > 0)
-		m_mainWinHeight = m_initPrm.winHeight;
-	if(m_initPrm.disFPS<=0)
-		m_initPrm.disFPS = 25;
-	if(m_initPrm.nQueueSize < 2)
-		m_initPrm.nQueueSize = 2;
-	m_interval = (1000000000ul)/(uint64)m_initPrm.disFPS;
-	//memcpy(m_videoSize, m_initPrm.channelsSize, sizeof(m_videoSize));
-
-    //glutInitWindowPosition(m_initPrm.winPosX, m_initPrm.winPosY);
-    glutInitWindowSize(m_mainWinWidth, m_mainWinHeight);
-    int winId = glutCreateWindow("DSS");
-    OSA_assert(winId > 0);
-    //int subId = glutCreateSubWindow( winId, 0, 0, m_mainWinWidth, m_mainWinHeight );
-    //OSA_assert(subId > 0);
-    //glutSetWindow(subId);
-	glutDisplayFunc(_display);
-	if(m_initPrm.idlefunc != NULL)
-		glutIdleFunc(m_initPrm.idlefunc);
-	glutReshapeFunc(_reshape);
-
-	if(m_initPrm.keyboardfunc != NULL)
-		glutKeyboardFunc(m_initPrm.keyboardfunc);
-	if(m_initPrm.keySpecialfunc != NULL)
-		glutSpecialFunc(m_initPrm.keySpecialfunc);
-
-	//mouse event:
-	if(m_initPrm.mousefunc != NULL)
-		glutMouseFunc(m_initPrm.mousefunc);//GLUT_LEFT_BUTTON GLUT_MIDDLE_BUTTON GLUT_RIGHT_BUTTON; GLUT_DOWN GLUT_UP
-	//glutMotionFunc();//button down
-	//glutPassiveMotionFunc();//button up
-	//glutEntryFunc();//state GLUT_LEFT, GLUT_ENTERED
-
-	if(m_initPrm.visibilityfunc != NULL)
-		glutVisibilityFunc(m_initPrm.visibilityfunc);
-
-	//setFullScreen(true);
-	if(m_initPrm.bFullScreen){
-		glutFullScreen();
-		m_bFullScreen = true;
-		setFullScreen(m_bFullScreen);
-	}
-	glutCloseFunc(_close);
-
-	cv::Size screenSize(m_mainWinWidth, m_mainWinHeight);// = getScreenSize();
-	for(int i=0; i<DS_DC_CNT; i++){
-		unsigned char* mem = NULL;
-		cudaError_t et;
-		int nChannel = 1;
-		et = cudaHostAlloc((void**)&mem, screenSize.width*screenSize.height*nChannel, cudaHostAllocDefault);
-		//et=cudaMallocManaged ((void**)&mem, screenSize.width*screenSize.height*4, cudaMemAttachGlobal);
-		OSA_assert(et == cudaSuccess);
-		memset(mem, 0, screenSize.width*screenSize.height*nChannel);
-		if(nChannel == 1)
-			m_imgDC[i] = cv::Mat(screenSize.height, screenSize.width, CV_8UC1, mem);
-		else
-			m_imgDC[i] = cv::Mat(screenSize.height, screenSize.width, CV_8UC4, mem);
-	}
-
-	initRender();
-	gl_updateVertex();
-	gl_init();
-	for(int chId=0; chId<m_initPrm.nChannels; chId++){
-		image_queue_create(&m_bufQue[chId], m_initPrm.nQueueSize,
-				m_initPrm.channelsSize[chId].w*m_initPrm.channelsSize[chId].h*m_initPrm.channelsSize[chId].c,
-				m_initPrm.memType);
-		for(int i=0; i<m_bufQue[chId].numBuf; i++){
-			m_bufQue[chId].bufInfo[i].width = m_initPrm.channelsSize[chId].w;
-			m_bufQue[chId].bufInfo[i].height = m_initPrm.channelsSize[chId].h;
-			m_bufQue[chId].bufInfo[i].channels = m_initPrm.channelsSize[chId].c;
-		}
-	}
-
-	return 0;
-}
-
-int CRender::get_videoSize(int chId, DS_Size &size)
-{
-	if(chId < 0 || chId >= DS_CHAN_MAX)
-		return -1;
-	size = m_videoSize[chId];
-
-	return 0;
-}
 int CRender::dynamic_config(DS_CFG type, int iPrm, void* pPrm)
 {
 	int iRet = 0;
@@ -469,26 +473,6 @@ GLuint CRender::async_display(int chId, int width, int height, int channels)
 	return buffId_input[chId];
 }
 
-void CRender::run()
-{
-	m_bRun = true;
-	m_timerRun = false;
-	//glutSetOption();
-	//glutMainLoopEvent();
-	//glutMainLoop();
-#if (!RENDMOD_TIME_ON)
-	if(m_initPrm.timerfunc != NULL)
-		glutTimerFunc(0, _timeFunc, m_initPrm.timerfunc_value);
-#endif
-
-	glutPostRedisplay();
-}
-
-void CRender::stop()
-{
-	m_bRun = false;
-}
-
 int CRender::setFullScreen(bool bFull)
 {
 	if(bFull)
@@ -503,139 +487,9 @@ int CRender::setFullScreen(bool bFull)
 
 /***********************************************************************/
 
-static int getDisplayResolution(const char* display_name,uint32_t &width, uint32_t &height)
-{
-    int screen_num;
-    Display * x_display = XOpenDisplay(display_name);
-    if (NULL == x_display)
-    {
-        return  -1;
-    }
-
-    screen_num = DefaultScreen(x_display);
-    width = DisplayWidth(x_display, screen_num);
-    height = DisplayHeight(x_display, screen_num);
-
-    XCloseDisplay(x_display);
-    x_display = NULL;
-
-    return 0;
-}
-
-int CRender::gl_create()
-{
-	char strParams[][32] = {"DS_RENDER", "-display", ":0"};
-	char *argv[3];
-	int argc = 3;
-	for(int i=0; i<argc; i++)
-		argv[i] = strParams[i];
-	uint32_t screenWidth = 0, screenHeight = 0;
-	if(getDisplayResolution(strParams[2], screenWidth, screenHeight) == 0)
-	{
-		m_mainWinWidth = screenWidth;
-		m_mainWinHeight = screenHeight;
-	}
-	OSA_printf("screen resolution: %d x %d", screenWidth, screenHeight);
-   // GLUT init
-    glutInit(&argc, argv);
-	//Double, Use glutSwapBuffers() to show
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_MULTISAMPLE);
-	//Single, Use glFlush() to show
-	//glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB );
-
-	// Blue background
-	glClearColor(0.0f, 0.0f, 0.01f, 0.0f );
-
-	return 0;
-}
-void CRender::gl_destroy()
-{
-	gl_uninit();
-	glutLeaveMainLoop();
-	for(int chId=0; chId<DS_CHAN_MAX; chId++)
-		cudaResource_UnregisterBuffer(chId);
-}
-
 #define TEXTURE_ROTATE (0)
 #define ATTRIB_VERTEX 3
 #define ATTRIB_TEXTURE 4
-void CRender::gl_init()
-{
-	int i;
-
-	GLenum err = glewInit();
-	if (GLEW_OK != err) {
-		fprintf(stderr, "GLEW Error: %s\n", glewGetErrorString(err));
-		return;
-	}
-
-	gl_loadProgram();
-	//glShaderManager.InitializeStockShaders();
-
-	glGenBuffers(DS_CHAN_MAX, buffId_input);
-	glGenTextures(DS_CHAN_MAX, textureId_input);
-	for(i=0; i<DS_CHAN_MAX; i++)
-	{
-		glBindTexture(GL_TEXTURE_2D, textureId_input[i]);
-		assert(glIsTexture(textureId_input[i]));
-		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);//GL_NEAREST);//GL_NEAREST_MIPMAP_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);//GL_NEAREST);//GL_NEAREST_MIPMAP_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);//GL_CLAMP);//GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);//GL_CLAMP);//GL_CLAMP_TO_EDGE);
-		glTexImage2D(GL_TEXTURE_2D, 0, 3, 1920, 1080, 0, GL_BGR_EXT, GL_UNSIGNED_BYTE, NULL);
-	}
-
-	glGenBuffers(DS_DC_CNT, buffId_dc);
-	glGenTextures(DS_DC_CNT, textureId_dc);
-	for(i=0; i<DS_DC_CNT; i++)
-	{
-		glBindTexture(GL_TEXTURE_2D, textureId_dc[i]);
-		assert(glIsTexture(textureId_dc[i]));
-		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, buffId_dc[i]);
-		glBufferData(GL_PIXEL_UNPACK_BUFFER, m_imgDC[i].cols*m_imgDC[i].rows*m_imgDC[i].channels(), m_imgDC[i].data, GL_DYNAMIC_DRAW);//GL_DYNAMIC_COPY);//GL_STATIC_DRAW);//GL_DYNAMIC_DRAW);
-		if(m_imgDC[i].channels() == 1)
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, m_imgDC[i].cols, m_imgDC[i].rows,0, GL_ALPHA, GL_UNSIGNED_BYTE, NULL);
-		else{
-			glTexImage2D(GL_TEXTURE_2D, 0, m_imgDC[i].channels(), m_imgDC[i].cols, m_imgDC[i].rows,0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, NULL);
-			//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_imgOsd[i].cols, m_imgOsd[i].rows,0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, NULL);
-		}
-		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-	}
-
-	for(i=0; i<DS_CHAN_MAX; i++){
-		m_glmat44fTrans[i] = cv::Matx44f::eye();
-	}
-	for(i=0; i<DS_CHAN_MAX*DS_CHAN_MAX; i++){
-		m_glmat44fBlend[i] = cv::Matx44f::eye();
-		m_glBlendPrm[i].fAlpha = 0.5f;
-		m_glBlendPrm[i].thr0Min = 0;
-		m_glBlendPrm[i].thr0Max = 0;
-		m_glBlendPrm[i].thr1Min = 0;
-		m_glBlendPrm[i].thr1Max = 0;
-	}
-
-	//glEnable(GL_LINE_SMOOTH);
-	//glHint(GL_LINE_SMOOTH_HINT, GL_DONT_CARE);
-	glClear(GL_COLOR_BUFFER_BIT);
-
-	if(m_initPrm.initfunc != NULL)
-		m_initPrm.initfunc();
-}
-
-void CRender::gl_uninit()
-{
-	gl_unloadProgram();
-
-	glDeleteTextures(DS_CHAN_MAX, textureId_input);
-	glDeleteBuffers(DS_CHAN_MAX, buffId_input);
-	glDeleteTextures(DS_DC_CNT, textureId_dc);
-	glDeleteBuffers(DS_DC_CNT, buffId_dc);
-
-}
 
 int CRender::gl_updateVertex(void)
 {
@@ -651,19 +505,13 @@ int CRender::gl_updateVertex(void)
 		m_glvVerts[winId][4] = -1.0f; m_glvVerts[winId][5] 	= -1.0f;
 		m_glvVerts[winId][6] = 1.0f;  m_glvVerts[winId][7] 	= -1.0f;
 
-		/*for(i=0; i<4; i++){
-			float x = m_glvVerts[winId][i*2+0];
-			float y = m_glvVerts[winId][i*2+1];
-			//m_glvVerts[winId][i*2+0] = m_renders[winId].transform[0][0] * x + m_renders[winId].transform[0][1] * y + m_renders[winId].transform[0][3];
-			//m_glvVerts[winId][i*2+1] = m_renders[winId].transform[1][0] * x + m_renders[winId].transform[1][1] * y + m_renders[winId].transform[1][3];
-			m_glvVerts[winId][i*2+0] = m_renders[winId].transform.val[0*4+0] * x + m_renders[winId].transform.val[0*4+1] * y + m_renders[winId].transform.val[0*4+3];
-			m_glvVerts[winId][i*2+1] = m_renders[winId].transform.val[1*4+0] * x + m_renders[winId].transform.val[1*4+1] * y + m_renders[winId].transform.val[1*4+3];
-		}*/
-
 		m_glvTexCoords[winId][0] = 0.0; m_glvTexCoords[winId][1] = 0.0;
 		m_glvTexCoords[winId][2] = 1.0; m_glvTexCoords[winId][3] = 0.0;
 		m_glvTexCoords[winId][4] = 0.0; m_glvTexCoords[winId][5] = 1.0;
 		m_glvTexCoords[winId][6] = 1.0; m_glvTexCoords[winId][7] = 1.0;
+
+		memcpy(m_glvVerts[winId], defaultVertices, sizeof(defaultVertices));
+		memcpy(m_glvTexCoords[winId], defaultTextureCoords, sizeof(defaultTextureCoords));
 	}
 
 	for(winId=0; winId<m_renderCount; winId++)
@@ -695,43 +543,6 @@ int CRender::gl_updateVertex(void)
 	return iRet;
 }
 
-void CRender::gl_updateTexDC()
-{
-	if(m_bDC)
-	{
-		for(int i=0; i<DS_DC_CNT; i++)
-		{
-			glBindTexture(GL_TEXTURE_2D, textureId_dc[i]);
-#if 1
-			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, buffId_dc[i]);
-			if(0){
-				glBufferData(GL_PIXEL_UNPACK_BUFFER, m_imgDC[i].cols*m_imgDC[i].rows*m_imgDC[i].channels(), m_imgDC[i].data, GL_DYNAMIC_DRAW);//GL_DYNAMIC_COPY);//GL_DYNAMIC_COPY);//GL_STATIC_DRAW);//GL_DYNAMIC_DRAW);
-			}else{
-				unsigned int byteCount = m_imgDC[i].cols*m_imgDC[i].rows*m_imgDC[i].channels();
-				unsigned char *dev_pbo = NULL;
-				size_t tmpSize;
-				cudaResource_RegisterBuffer(DS_CHAN_MAX+i, buffId_dc[i], byteCount);
-				cudaResource_mapBuffer(DS_CHAN_MAX+i, (void **)&dev_pbo, &tmpSize);
-				assert(tmpSize == byteCount);
-				cudaMemcpy(dev_pbo, m_imgDC[i].data, byteCount, cudaMemcpyHostToDevice);
-				//cudaDeviceSynchronize();
-				cudaResource_unmapBuffer(DS_CHAN_MAX+i);
-				cudaResource_UnregisterBuffer(DS_CHAN_MAX+i);
-			}
-			if(m_imgDC[i].channels() == 1)
-				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_imgDC[i].cols, m_imgDC[i].rows, GL_ALPHA, GL_UNSIGNED_BYTE, NULL);
-			else
-				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_imgDC[i].cols, m_imgDC[i].rows, GL_BGRA_EXT, GL_UNSIGNED_BYTE, NULL);
-			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-#else
-			if(m_imgDC[i].channels() == 1)
-				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_imgDC[i].cols, m_imgDC[i].rows, GL_RED, GL_UNSIGNED_BYTE, m_imgDC[i].data);
-			else
-				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_imgDC[i].cols, m_imgDC[i].rows, GL_BGRA_EXT, GL_UNSIGNED_BYTE, m_imgDC[i].data);
-#endif
-		}
-	}
-}
 void CRender::gl_updateTexVideo()
 {
 	static int bCreate[DS_CHAN_MAX] = {0,0,0,0};
@@ -745,9 +556,7 @@ void CRender::gl_updateTexVideo()
 		nCnt[chId] ++;
 		if(nCnt[chId] > 300 && count>1){
 			nCnt[chId] = 0;
-			m_timerRun = false;
-		}
-		if(!m_timerRun && count>1){
+
 			OSA_printf("[%d]%s: ch%d queue count = %d, sync!!!\n",
 									OSA_getCurTimeInMsec(), __func__, chId, count);
 			while(count>1){
@@ -981,7 +790,7 @@ void CRender::gl_display(void)
 	tstart = tStamp[0];
 	if(tend == 0ul)
 		tend = tstart;
-#if (!RENDMOD_TIME_ON)
+
 	//if(m_initPrm.renderfunc == NULL)
 	{
 		double wms = m_interval*0.000001 - m_telapse;
@@ -994,7 +803,7 @@ void CRender::gl_display(void)
 			wms = 0.0;
 		}
 	}
-#endif
+
 	tStamp[1] = getTickCount();
 
 	if(m_initPrm.renderfunc != NULL)
@@ -1004,9 +813,6 @@ void CRender::gl_display(void)
 	gl_updateTexVideo();
 	tStamp[3] = getTickCount();
 
-	if(m_initPrm.renderfunc != NULL)
-		m_initPrm.renderfunc(RUN_DC, 0, (int)m_bDC);
-	gl_updateTexDC();
 	tStamp[4] = getTickCount();
 
     //int viewport[4];
@@ -1107,48 +913,6 @@ void CRender::gl_display(void)
 		}
 		OSA_mutexUnlock(&m_mutex);
 	}
-
-	if(m_bDC)
-	{
-		glViewport(0, 0, m_mainWinWidth, m_mainWinHeight);
-		for(int i=0; i<DS_DC_CNT; i++)
-		{
-			if(m_imgDC[i].channels() == 1){
-				glProg = m_glProgram[5];
-				glUseProgram(glProg);
-				GLint Uniform_tex_in = glGetUniformLocation(glProg, "tex_in");
-				GLint Uniform_vcolor = glGetUniformLocation(glProg, "vColor");
-				glUniform1i(Uniform_tex_in, 0);
-				glActiveTexture(GL_TEXTURE0);
-				GLfloat vColor[4];
-				vColor[0] = m_dcColor.val[0]/255.0;
-				vColor[1] = m_dcColor.val[1]/255.0;
-				vColor[2] = m_dcColor.val[2]/255.0;
-				vColor[3] = m_dcColor.val[3]/255.0;
-				glUniform4fv(Uniform_vcolor, 1, vColor);
-			}else{
-				glProg = m_glProgram[0];
-				glUseProgram(glProg);
-				GLint Uniform_tex_in = glGetUniformLocation(glProg, "tex_in");
-				glUniform1i(Uniform_tex_in, 0);
-				glActiveTexture(GL_TEXTURE0);
-			}
-
-			glVertexAttribPointer(ATTRIB_VERTEX, 2, GL_FLOAT, GL_FALSE, 0, m_glvVertsDefault);
-			glVertexAttribPointer(ATTRIB_TEXTURE, 2, GL_FLOAT, GL_FALSE, 0, m_glvTexCoordsDefault);
-			glEnableVertexAttribArray(ATTRIB_VERTEX);
-			glEnableVertexAttribArray(ATTRIB_TEXTURE);
-
-			//glEnable(GL_MULTISAMPLE);
-			glEnable(GL_BLEND);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			glBindTexture(GL_TEXTURE_2D, textureId_dc[i]);
-			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-			//glDisable(GL_MULTISAMPLE);
-			glDisable(GL_BLEND);
-			glUseProgram(0);
-		}
-	}
 	//glValidateProgram(m_glProgram);
 
 	UpdateOSD();
@@ -1161,17 +925,6 @@ void CRender::gl_display(void)
 	m_waitSync = true;
 	int64 tcur = tStamp[5];
 	m_telapse = (tStamp[5] - tStamp[1])*0.000001f + 3.0;
-	/*
-	double telapse = ( (tcur - tstart)/getTickFrequency())*1000.0f;
-	if(telapse > m_interval*0.00000098f)
-	{
-		//m_waitSync = false;
-#if (!RENDMOD_TIME_ON)
-		if(m_telapse<m_interval*0.000001f){
-			m_telapse += 2.0f;
-		}
-#endif
-	}*/
 
 	glutSwapBuffers();
 	tStamp[6] = getTickCount();
@@ -1179,14 +932,6 @@ void CRender::gl_display(void)
 		m_initPrm.renderfunc(RUN_LEAVE, 0, 0);
 	tend = tStamp[6];
 	float renderIntv = (tend - m_tmRender)/getTickFrequency();
-	if(renderIntv > m_interval*0.0000000011f)
-	{
-		if(m_telapse<m_interval*0.000001f)
-			m_telapse+=0.5;
-	}else{
-		if(m_telapse>0.0005001)
-		m_telapse -= 0.0005;
-	}
 
 #if 1
 	static unsigned long rCount = 0;
@@ -1208,16 +953,7 @@ void CRender::gl_display(void)
 	//	OSA_printf("%s %d: null", __func__, __LINE__);
 	//}
 	m_tmRender = tend;
-#if RENDMOD_TIME_ON
-	if(!m_timerRun){
-		unsigned int intv = (m_interval-((telapse+0.009)*1000000000));
-		intv /= 1000000;
-		glutTimerFunc(intv, _timeFunc, m_initPrm.timerfunc_value);
-	}
-#else
-	m_timerRun = true;
 	glutPostRedisplay();
-#endif
 }
 
 //////////////////////////////////////////////////////

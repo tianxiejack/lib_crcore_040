@@ -508,10 +508,6 @@ static int setOSDColor(int value, int thickness)
 	colorYUVFlag = value;
 	colorRGBAFlag = cv::Scalar(R,G,B,255);
 	curThicknessFlag = thickness;
-	if(render != NULL){
-		render->m_dcColor = cvScalar(R,G,B,255);
-		//render->m_thickness = thickness;
-	}
 }
 
 static int setOSDColor(cv::Scalar rgba, int thickness)
@@ -524,10 +520,6 @@ static int setOSDColor(cv::Scalar rgba, int thickness)
 	colorYUVFlag = (Y&0xff)|((U&0xff)<<8)|((V&0xff)<<16);
 	colorRGBAFlag = rgba;
 	curThicknessFlag = thickness;
-	if(render != NULL){
-		render->m_dcColor = rgba;
-		//render->m_thickness = thickness;
-	}
 }
 
 
@@ -654,7 +646,7 @@ static OSA_SemHndl *imgQEncSem[CORE_CHN_MAX] = {NULL,};
 static unsigned char *memsI420[CORE_CHN_MAX] = {NULL,};
 static cv::Mat imgOsd[CORE_CHN_MAX];
 static OSA_MutexHndl *cumutex = NULL;
-static void renderInitCall(void);
+static void glosdInit(void);
 static void renderCall(int stepIdx, int stepSub, int context);
 
 static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
@@ -743,7 +735,6 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		dsInit.nQueueSize = 2;
 		dsInit.disFPS = initParam->renderFPS;
 		dsInit.renderfunc = renderCall;
-		dsInit.initfunc = renderInitCall;
 		dsInit.winWidth = initParam->renderSize.width;
 		dsInit.winHeight = initParam->renderSize.height;
 		for(chId=0; chId<channels; chId++){
@@ -756,14 +747,15 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		}
 		render = CRender::createObject();
 		//render->m_cumutex = cumutex;
-		render->create();
-		render->init(&dsInit);
+		render->create(&dsInit);
 		for(chId=0; chId<channels; chId++){
 			imgQRender[chId] = &render->m_bufQue[chId];
 		}
 		inputQ = new InputQueue;
 		inputQ->create(channels);
 		//render->run();
+
+		glosdInit();
 	}
 
 	svm = new CSVMDetectProcess();
@@ -782,14 +774,8 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 	for(chId=0; chId<channels; chId++){
 		general->m_dc[chId] = imgOsd[chId];
 		general->m_vosds[chId] = vOSDs[chId];
-		if(!bEncoder && bRender){
-			general->m_dc[chId] = render->m_imgDC[0];
-		}
 		general->m_imgSize[chId] = channelsImgSize[chId];
 	}
-	//if(!bEncoder && bRender){
-	//	render->m_bDC = !bHideOSD;
-	//}
 
 	proc = general;
 	general->creat();
@@ -806,7 +792,6 @@ static int uninit()
 	enctran->stop();
 	enctran->destroy();
 	if(render != NULL){
-		render->stop();
 		render->destroy();
 		CRender::destroyObject(render);
 	}
@@ -965,7 +950,6 @@ static void renderFrame(int chId, const Mat& img, const struct v4l2_buffer& bufI
 		else{
 			OSA_printf("%s %d: overflow!", __func__, __LINE__);
 			image_queue_switchEmpty(imgQRender[chId]);
-			render->m_timerRun = false;
 		}
 	}
 }
@@ -1094,7 +1078,7 @@ static void videoInput(int cap_chid, unsigned char *src, const struct v4l2_buffe
 	}
 }
 
-static void renderInitCall(void)
+static void glosdInit(void)
 {
 	cr_osd::glShaderManager.InitializeStockShaders();
 	for(int chId=0; chId<nValidChannels; chId++){
