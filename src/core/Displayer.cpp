@@ -246,7 +246,11 @@ int CRender::init(DS_InitPrm *pPrm)
 
     //glutInitWindowPosition(m_initPrm.winPosX, m_initPrm.winPosY);
     glutInitWindowSize(m_mainWinWidth, m_mainWinHeight);
-    glutCreateWindow("DSS");
+    int winId = glutCreateWindow("DSS");
+    OSA_assert(winId > 0);
+    //int subId = glutCreateSubWindow( winId, 0, 0, m_mainWinWidth, m_mainWinHeight );
+    //OSA_assert(subId > 0);
+    //glutSetWindow(subId);
 	glutDisplayFunc(_display);
 	if(m_initPrm.idlefunc != NULL)
 		glutIdleFunc(m_initPrm.idlefunc);

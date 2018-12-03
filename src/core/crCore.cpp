@@ -173,7 +173,7 @@ static void localInit(int nChannels, bool bEncoder)
 	colorRGBAFlag = cv::Scalar::all(255);
 	curThicknessFlag = 2;
 	if(bEncoder)
-		curThicknessFlag = 2;
+		curThicknessFlag = 1;
 	userEncParamTab[0] = defaultEncParamTab[0];
 	userEncParamTab[1] = defaultEncParamTab[1];
 	userEncParamTab[2] = defaultEncParamTab[2];
@@ -476,6 +476,34 @@ static int setOSDColor(int value, int thickness)
 	R = Y+((360*(V-128))>>8);
 	G = Y-((88*(U-128)+184*(V-128))>>8);
 	B = Y+((455*(U-128))>>8);
+
+	switch(value)
+	{
+	case WHITECOLOR:
+		R = 255; G = 255; B = 255;
+		break;
+	case YELLOWCOLOR:
+		R = 255; G = 255; B = 0;
+		break;
+	case CRAYCOLOR:
+		break;
+	case GREENCOLOR:
+		R = 0; G = 255; B = 0;
+		break;
+	case MAGENTACOLOR:
+		break;
+	case REDCOLOR:
+		R = 255; G = 0; B = 0;
+		break;
+	case BLUECOLOR:
+		R = 0; G = 0; B = 255;
+		break;
+	case BLACKCOLOR:
+		R = 0; G = 0; B = 0;
+		break;
+	case BLANKCOLOR:
+		break;
+	}
 
 	colorYUVFlag = value;
 	colorRGBAFlag = cv::Scalar(R,G,B,255);
