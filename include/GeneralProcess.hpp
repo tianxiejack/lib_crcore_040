@@ -8,7 +8,6 @@
 #ifndef PROCESS_BASE_HPP_
 #define PROCESS_BASE_HPP_
 
-#include <glut.h>
 #include "trackerProcess.hpp"
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>

@@ -38,7 +38,7 @@ public :
 	};
 	CSVMDetectProcess(IProcess *proc = NULL);
 	virtual ~CSVMDetectProcess();
-	virtual int process(int chId, int fovId, int ezoomx, Mat frame);
+	virtual int process(int chId, int fovId, int ezoomx, Mat frame, uint64_t timestamp);
 	virtual int dynamic_config(int type, int iPrm, void* pPrm = NULL, int prmSize = 0);
 	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd);
 

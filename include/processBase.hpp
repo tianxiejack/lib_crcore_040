@@ -37,6 +37,7 @@ using namespace cv;
 #define VP_CFG_BKGD_BASE	(0x4000 + VP_CFG_BASE)
 #define VP_CFG_BLOB_BASE	(0x5000 + VP_CFG_BASE)
 #define VP_CFG_SVM_BASE     (0x6000 + VP_CFG_BASE)
+#define VP_CFG_SCENE_BASE   (0x7000 + VP_CFG_BASE)
 
 typedef struct _OSD_unit_info{
 	bool bNeedDraw;
@@ -56,7 +57,7 @@ typedef struct{
 class IProcess
 {
 public:
-	virtual int process(int chId, int fovId, int ezoomx, Mat frame) = 0;
+	virtual int process(int chId, int fovId, int ezoomx, Mat frame, uint64_t timestamp) = 0;
 	virtual int dynamic_config(int type, int iPrm, void* pPrm = NULL, int prmSize = 0) = 0;
 	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd) = 0;
 };
@@ -74,11 +75,11 @@ public:
 		OSA_mutexLock(&m_mutexlock);
 		OSA_mutexDelete(&m_mutexlock);
 	};
-	virtual int process(int chId, int fovId, int ezoomx, Mat frame){
+	virtual int process(int chId, int fovId, int ezoomx, Mat frame, uint64_t timestamp){
 		//cout<<"CProcessBase process"<<endl;
 
 		if(m_proc != NULL)
-			return m_proc->process(chId, fovId, ezoomx, frame);
+			return m_proc->process(chId, fovId, ezoomx, frame, timestamp);
 		return 0;
 	};
 	enum{

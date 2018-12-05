@@ -4,15 +4,13 @@
  *  Created on: May 5, 2017
  *      Author: ubuntu
  */
-#include <glut.h>
 #include "GeneralProcess.hpp"
 //#include "vmath.h"
 
 #define CALIB_AXIS_FILE		"CalibAxisFile.yml"
 #define CONFIG_AVT_FILE		"ConfigAvtFile.yml"
 
-static int ScalerLarge,ScalerMid,ScalerSmall;
-
+/*
 static inline void my_rotate(GLfloat result[16], float theta)
 {
 	float rads = float(theta/180.0f) * CV_PI;
@@ -28,7 +26,7 @@ static inline void my_rotate(GLfloat result[16], float theta)
 	result[10] = 1.0f;
 	result[15] = 1.0f;
 }
-
+*/
 CGeneralProc::CGeneralProc(OSA_SemHndl *notifySem, IProcess *proc)
 	:CTrackerProc(notifySem, proc),m_bHide(false)
 {
@@ -385,6 +383,7 @@ int CGeneralProc::ReadCfgAvtFromFile()
 			algOsdRect = false;
 
 
+		int ScalerLarge,ScalerMid,ScalerSmall;
 		ScalerLarge = (int)cfg_blk_val[16];
 		ScalerMid = (int)cfg_blk_val[17];		
 		ScalerSmall = (int)cfg_blk_val[18];
@@ -521,6 +520,10 @@ int CGeneralProc::ReadCfgAvtFromFile()
 			UtcSetRoiMaxWidth(m_track, 200);
 
 		UtcSetPLT_BS(m_track, tPLT_WRK, BoreSight_Mid);
+
+		m_lossCoastTelapseMax = (int)cfg_blk_val[54];
+		OSA_printf("[General]%s %d: lossCoastTelapseMax = %d ms", __func__, __LINE__, m_lossCoastTelapseMax);
+
 		return 0;
 
 	}

@@ -5,44 +5,40 @@
  *      Author: wzk
  */
 #if 1
-#ifndef BKGDDETECTPROCESS_HPP_
-#define BKGDDETECTPROCESS_HPP_
+#ifndef SCENEPROCESS_HPP_
+#define SCENEPROCESS_HPP_
 
 #include "processBase.hpp"
+#include "sceneProc.hpp"
+#include "crosd.hpp"
 
-typedef	struct	 _bkgd_target{
-	cv::Rect	targetRect;
-}BKGD_TARGET;
-
-class CBkgdDetectProcess : public CProcessBase
+class CSceneProcess : public CProcessBase
 {
+	SceneProc m_obj;
 	int m_curChId;
 	cv::Size m_imgSize[MAX_CHAN];
-	float m_threshold;
-	int m_mode;
 	unsigned long m_cnt[MAX_CHAN];
+	std::vector<float> vArrayOrg;
+	std::vector<float> vArrayFilter;
+	cr_osd::IPattern* patOrg;
+	cr_osd::IPattern* patFilter;
 	int ReadCfgFile();
-	void detect(Mat frame, int chId);
+	void detect(const Mat& frame, int chId);
 public :
 	enum{
-		VP_CFG_BkgdDetectEnable=VP_CFG_BKGD_BASE,
+		VP_CFG_SceneEnable=VP_CFG_SCENE_BASE,
 		VP_CFG_Max
 	};
-	CBkgdDetectProcess(IProcess *proc = NULL);
-	virtual ~CBkgdDetectProcess();
+	CSceneProcess(IProcess *proc = NULL);
+	virtual ~CSceneProcess();
 	virtual int process(int chId, int fovId, int ezoomx, Mat frame, uint64_t timestamp);
 	virtual int dynamic_config(int type, int iPrm, void* pPrm = NULL, int prmSize = 0);
 	virtual int OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd);
 
 	bool m_bEnable;
-	float m_alpha;
-	float m_thr0Min;
-	float m_thr0Max;
-	float m_thr1Min;
-	float m_thr1Max;
 };
 
 
 
-#endif /* BKGDDETECTPROCESS_HPP_ */
+#endif /* SCENEPROCESS_HPP_ */
 #endif

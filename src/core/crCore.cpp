@@ -5,9 +5,7 @@
  *      Author: wzk
  */
 #include "glosd.hpp"
-//#include <glew.h>
-#include <glut.h>
-#include <freeglut_ext.h>
+#include "SceneProcess.hpp"
 #include "SVMDetectProcess.hpp"
 #include "blobDetectProcess.hpp"
 #include "backgroundProcess.hpp"
@@ -39,6 +37,7 @@ static cr_osd::GLOSD *glosdFront = NULL;
 static CEncTrans *enctran = NULL;
 static CRender *render = NULL;
 static IProcess *proc = NULL;
+static CSceneProcess *scene = NULL;
 static CSVMDetectProcess *svm = NULL;
 static CBlobDetectProcess *blob = NULL;
 static CBkgdDetectProcess *bkgd = NULL;
@@ -274,8 +273,12 @@ static int enableMMTD(bool enable, int nTarget)
 
 static int enableMotionDetect(bool enable)
 {
+#if 0
 	proc->dynamic_config(CMotionDetectProcess::VP_CFG_MONTIONEnable, enable);
 	enableMotionDetectFlag = enable;
+#else
+	proc->dynamic_config(CSceneProcess::VP_CFG_SceneEnable, enable);
+#endif
 	return OSA_SOK;
 }
 
@@ -758,7 +761,8 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		glosdInit();
 	}
 
-	svm = new CSVMDetectProcess();
+	scene  = new CSceneProcess();
+	svm = new CSVMDetectProcess(scene);
 	blob = new CBlobDetectProcess(svm);
 	bkgd = new CBkgdDetectProcess(blob);
 	motion = new CMotionDetectProcess(bkgd);
@@ -809,6 +813,7 @@ static int uninit()
 	delete bkgd;
 	delete blob;
 	delete svm;
+	delete scene;
 	for(int chId=0; chId<nValidChannels; chId++){
 		cudaFreeHost(imgOsd[chId].data);
 		cudaFreeHost(memsI420[chId]);
@@ -959,6 +964,8 @@ static void processFrameAtOnce(int cap_chid, unsigned char *src, const struct v4
 	if(capInfo.flags & V4L2_BUF_FLAG_ERROR)
 		return;
 
+	uint64_t timestamp = (uint64_t)getTickCount();
+
 	if(curChannelFlag == cap_chid /*|| curSubChannelIdFlag == cap_chid*/ || bindBlendFlag[cap_chid] != 0){
 		Mat img;
 		if(format==V4L2_PIX_FMT_YUYV)
@@ -974,7 +981,7 @@ static void processFrameAtOnce(int cap_chid, unsigned char *src, const struct v4
 		}else{
 			OSA_assert(0);
 		}
-		proc->process(cap_chid, curFovIdFlag[cap_chid], ezoomxFlag[cap_chid], img);
+		proc->process(cap_chid, curFovIdFlag[cap_chid], ezoomxFlag[cap_chid], img, timestamp);
 	}
 
 }
@@ -1071,8 +1078,6 @@ static void videoInput(int cap_chid, unsigned char *src, const struct v4l2_buffe
 		int channels = ( (format == V4L2_PIX_FMT_GREY) ? 1 : ((format == V4L2_PIX_FMT_BGR24 || format == V4L2_PIX_FMT_RGB24) ? 3 : 2) );
 		inputQ->input(cap_chid, src, &capInfo, channelsImgSize[cap_chid], format, channels);
 		OSA_assert(render != NULL);
-		//if(cap_chid == 0)
-		//	glutPostRedisplay();
 	}else{
 		processFrame(cap_chid,src, capInfo, format);
 	}
@@ -1415,6 +1420,8 @@ void Core_1001::update()
 	m_stats.trackPos.y = curRC.y+curRC.height/2;
 	m_stats.trackWinSize.width = curRC.width;
 	m_stats.trackWinSize.height = curRC.height;
+	m_stats.lossCoastFrames = cr_local::general->m_iTrackLostCnt;
+	m_stats.lossCoastTelapse = cr_local::general->m_telapseLost;
 	if(cr_local::mmtd->m_bEnable){
 		int cnt = min(MAX_TGT_NUM, CORE_TGT_NUM_MAX);
 		for(int i=0; i<cnt; i++)
@@ -1450,6 +1457,7 @@ void Core_1001::update()
 		chn->enableEnh = cr_local::enableEnhFlag[chId];
 		chn->iEZoomx = cr_local::ezoomxFlag[chId];
 		chn->enableEncoder = cr_local::enableEncoderFlag[chId];//enctran->m_enable[chId];
+		chn->frameTimestamp = cr_local::general->m_frameTimestamp[chId];
 	}
 }
 

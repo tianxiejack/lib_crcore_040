@@ -16,16 +16,8 @@
 #include <opencv/cv.hpp>
 #include <opencv2/opencv.hpp>
 
-//#include <gl.h>
-#include <glew.h>
-#include <glut.h>
-#include <freeglut_ext.h>
-#include <cuda.h>
-#include <cuda_gl_interop.h>
-#include "cuda_runtime_api.h"
 #include "osa.h"
 #include "gst_capture.h"
-#include "cuda_convert.cuh"
 #include "sync422_trans.h"
 #include "encTrans.hpp"
 

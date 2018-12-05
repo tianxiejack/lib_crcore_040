@@ -80,10 +80,10 @@ inline void mResizeX2(Mat src, Mat dst)
 	}
 }
 
-int CMMTDProcess::process(int chId, int fovId, int ezoomx, Mat frame)
+int CMMTDProcess::process(int chId, int fovId, int ezoomx, Mat frame, uint64_t timestamp)
 {
 	int iRet = OSA_SOK;
-	iRet = CProcessBase::process(chId, fovId, ezoomx, frame);
+	iRet = CProcessBase::process(chId, fovId, ezoomx, frame, timestamp);
 
 	m_imgSize[chId].width = frame.cols;
 	m_imgSize[chId].height = frame.rows;

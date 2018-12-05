@@ -81,9 +81,9 @@ inline void mResizeX2(Mat src, Mat dst)
 	}
 }
 
-int CBlobDetectProcess::process(int chId, int fovId, int ezoomx, Mat frame)
+int CBlobDetectProcess::process(int chId, int fovId, int ezoomx, Mat frame, uint64_t timestamp)
 {
-	int iRet = CProcessBase::process(chId, fovId, ezoomx, frame);
+	int iRet = CProcessBase::process(chId, fovId, ezoomx, frame, timestamp);
 
 	if(m_curChId != chId || !m_bEnable)
 		return iRet;

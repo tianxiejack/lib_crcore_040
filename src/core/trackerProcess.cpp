@@ -4,7 +4,6 @@
  *  Created on: 2017
  *      Author: sh
  */
-#include <glut.h>
 #include "trackerProcess.hpp"
 //#include "vmath.h"
 //#include "arm_neon.h"
@@ -12,9 +11,7 @@
 
 //using namespace vmath;
 
-int64 CTrackerProc::tstart = 0;
-
-extern void cutColor(cv::Mat src, cv::Mat &dst, int code);
+//extern void cutColor(cv::Mat src, cv::Mat &dst, int code);
 
 int CTrackerProc::MAIN_threadCreate(void)
 {
@@ -69,7 +66,7 @@ static void extractYUYV2Gray(Mat src, Mat dst)
 	}
 }
 
-int CTrackerProc::process(int chId, int fovId, int ezoomx, Mat frame)
+int CTrackerProc::process(int chId, int fovId, int ezoomx, Mat frame, uint64_t timestamp)
 {
 	static int ppBak = 1;
 	if(frame.cols<=0 || frame.rows<=0)
@@ -109,6 +106,7 @@ int CTrackerProc::process(int chId, int fovId, int ezoomx, Mat frame)
 			mainProcThrObj.cxt[pp].chId = chId;
 			mainProcThrObj.cxt[pp].fovId = fovId;
 			mainProcThrObj.cxt[pp].ezoomx = ezoomx;
+			mainProcThrObj.cxt[pp].timestamp = timestamp;
 			mainFrame[pp] = frame;
 			mainFramegray[pp] = frame_gray;
 			//OSA_printf("%s %d: ch%d(%d) fov%d(%d)", __func__, __LINE__, chId, m_curChId, fovId, m_curFovId[m_curChId]);
@@ -159,8 +157,10 @@ void CTrackerProc::main_proc_func()
 		int chId = mainProcThrObj.cxt[pp].chId;
 		int fovId = mainProcThrObj.cxt[pp].fovId;
 		int ezoomx = mainProcThrObj.cxt[pp].ezoomx;
+		uint64_t timestamp = mainProcThrObj.cxt[pp].timestamp;
+		m_frameTimestamp[chId] = timestamp;
 
-		CProcessBase::process(chId, fovId, ezoomx, frame_gray);
+		CProcessBase::process(chId, fovId, ezoomx, frame_gray, timestamp);
 
 		int iTrackStat = ReAcqTarget();
 		m_curEZoomx[chId] = ezoomx;
@@ -173,7 +173,7 @@ void CTrackerProc::main_proc_func()
 		if(iTrackStat >= 0)
 		{
 			UTC_RECT_float tmpRc;
-			if(iTrackStat == 0)
+			if(iTrackStat == 0 || iTrackStat == 3)
 				tmpRc = m_rcAcq;
 			else
 				tmpRc = m_rcTrackSelf;
@@ -194,10 +194,19 @@ void CTrackerProc::main_proc_func()
 		}
 		m_rcTrk = tRectScale(m_rcTrackSelf, m_imgSize[chId], (float)m_curEZoomx[chId]);
 
-		if(m_iTrackStat == 2)
+		if(m_iTrackStat > 1){
 			m_iTrackLostCnt++;
-		else
+			if(m_lostTimestamp == 0ul)
+				m_lostTimestamp = timestamp;
+			m_telapseLost = (Uint32)((timestamp - m_lostTimestamp)*0.000001);
+			//OSA_printf("m_iTrackLostCnt=%d m_telapseLost=%d", m_iTrackLostCnt, m_telapseLost);
+			if(m_lossCoastTelapseMax>0 && m_telapseLost>=m_lossCoastTelapseMax)
+				m_iTrackStat = 3;
+		}else{
 			m_iTrackLostCnt = 0;
+			m_lostTimestamp = 0ul;
+			m_telapseLost = 0;
+		}
 
 		OnProcess(chId, frame);
 		framecount++;
@@ -231,7 +240,7 @@ int CTrackerProc::MAIN_threadDestroy(void)
 
 CTrackerProc::CTrackerProc(OSA_SemHndl *notifySem, IProcess *proc)
 	:CProcessBase(proc),m_track(NULL),m_curChId(0),m_usrNotifySem(notifySem),
-	 m_bFixSize(false)//, adaptiveThred(180)
+	 m_bFixSize(false),m_lostTimestamp(0ul),m_telapseLost(0),m_lossCoastTelapseMax(0)
 {
 	memset(&mainProcThrObj, 0, sizeof(MAIN_ProcThrObj));
 	memset(&m_rcTrk, 0, sizeof(m_rcTrk));
@@ -263,6 +272,7 @@ CTrackerProc::CTrackerProc(OSA_SemHndl *notifySem, IProcess *proc)
 			m_AxisCalibX[i][j] = m_imgSize[i].width/2;
 			m_AxisCalibY[i][j] = m_imgSize[i].height/2;
 		}
+		m_frameTimestamp[i] = 0l;
 	}
 }
 

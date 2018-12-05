@@ -4,8 +4,9 @@
 #include <cuda_gl_interop.h>
 #include <cuda_runtime_api.h>
 #include <X11/Xlib.h>
+#include <stdarg.h>
 #include "osa_image_queue.h"
-#include "cuda_mem.cpp"
+#include "cuda_mem.hpp"
 #include "cuda_convert.cuh"
 
 #define TAG_VALUE   (0x10001000)
@@ -56,6 +57,18 @@ CRender::CRender()
 		m_blendMap[chId] = -1;
 		m_maskMap[chId] = -1;
 	}
+#ifdef __UI_EGL
+    stop_thread = false;
+    render_thread = 0;
+    x_window = 0;
+    x_display = NULL;
+    gc = NULL;
+    fontinfo = NULL;
+    egl_surface = EGL_NO_SURFACE;
+    egl_context = EGL_NO_CONTEXT;
+    egl_display = EGL_NO_DISPLAY;
+    egl_config = NULL;
+#endif
 }
 
 CRender::~CRender()
@@ -104,15 +117,6 @@ int CRender::create(DS_InitPrm *pPrm)
 		m_mainWinHeight = screenHeight;
 	}
 	OSA_printf("screen resolution: %d x %d", screenWidth, screenHeight);
-   // GLUT init
-    glutInit(&argc, argv);
-	//Double, Use glutSwapBuffers() to show
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_MULTISAMPLE);
-	//Single, Use glFlush() to show
-	//glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB );
-
-	// Blue background
-	glClearColor(0.0f, 0.0f, 0.01f, 0.0f );
 
 	OSA_mutexCreate(&m_mutex);
 
@@ -129,6 +133,73 @@ int CRender::create(DS_InitPrm *pPrm)
 		m_initPrm.nQueueSize = 2;
 	m_interval = (1000000000ul)/(uint64)m_initPrm.disFPS;
 	//memcpy(m_videoSize, m_initPrm.channelsSize, sizeof(m_videoSize));
+
+	initRender();
+	gl_updateVertex();
+
+	for(int i=0; i<DS_CHAN_MAX; i++){
+		m_glmat44fTrans[i] = cv::Matx44f::eye();
+	}
+	for(int i=0; i<DS_CHAN_MAX*DS_CHAN_MAX; i++){
+		m_glmat44fBlend[i] = cv::Matx44f::eye();
+		m_glBlendPrm[i].fAlpha = 0.5f;
+		m_glBlendPrm[i].thr0Min = 0;
+		m_glBlendPrm[i].thr0Max = 0;
+		m_glBlendPrm[i].thr1Min = 0;
+		m_glBlendPrm[i].thr1Max = 0;
+	}
+
+#ifdef __UI_EGL
+    int depth;
+    int screen_num;
+    uint32_t width = m_mainWinWidth, height = m_mainWinHeight, x_offset = 0, y_offset = 0;
+    XSetWindowAttributes window_attributes;
+    memset(&window_attributes, 0, sizeof(window_attributes));
+
+    x_display = XOpenDisplay(strParams[2]);
+    if (NULL == x_display)
+    {
+        OSA_printf("[Render] %s %d: Error in opening display", __func__, __LINE__);
+        return OSA_EFAIL;
+    }
+    screen_num = DefaultScreen(x_display);
+    depth = DefaultDepth(x_display, screen_num);
+
+    window_attributes.background_pixel =
+        BlackPixel(x_display, DefaultScreen(x_display));
+
+    window_attributes.override_redirect = 1;
+
+    x_window = XCreateWindow(x_display,
+                             DefaultRootWindow(x_display), x_offset,
+                             y_offset, width, height,
+                             0,
+                             depth, CopyFromParent,
+                             CopyFromParent,
+                             (CWBackPixel | CWOverrideRedirect),
+                             &window_attributes);
+    OSA_assert(x_window != 0);
+
+    XSelectInput(x_display, (int32_t) x_window, ExposureMask);
+    XMapWindow(x_display, (int32_t) x_window);
+    gc = XCreateGC(x_display, x_window, 0, NULL);
+
+    XSetForeground(x_display, gc,
+                WhitePixel(x_display, DefaultScreen(x_display)) );
+    fontinfo = XLoadQueryFont(x_display, "9x15bold");
+
+    pthread_mutex_lock(&render_lock);
+    pthread_create(&render_thread, NULL, renderThread, this);
+    pthread_cond_wait(&render_cond, &render_lock);
+    pthread_mutex_unlock(&render_lock);
+
+#else
+   // GLUT init
+    glutInit(&argc, argv);
+	//Double, Use glutSwapBuffers() to show
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_MULTISAMPLE);
+	//Single, Use glFlush() to show
+	//glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB );
 
     //glutInitWindowPosition(m_initPrm.winPosX, m_initPrm.winPosY);
     glutInitWindowSize(m_mainWinWidth, m_mainWinHeight);
@@ -155,80 +226,153 @@ int CRender::create(DS_InitPrm *pPrm)
 	if(m_initPrm.visibilityfunc != NULL)
 		glutVisibilityFunc(m_initPrm.visibilityfunc);
 
-	//setFullScreen(true);
 	if(m_initPrm.bFullScreen){
 		glutFullScreen();
 		m_bFullScreen = true;
-		setFullScreen(m_bFullScreen);
 	}
 	glutCloseFunc(_close);
 
-	initRender();
-	gl_updateVertex();
-
 	GLenum err = glewInit();
 	if (GLEW_OK != err) {
-		fprintf(stderr, "GLEW Error: %s\n", glewGetErrorString(err));
+		fprintf(stderr, "\n[Render] %s %d: Error in glewInit. %s\n", __func__, __LINE__, glewGetErrorString(err));
 		return -1;
 	}
+	OSA_printf("[Render] %s %d: glewInit success", __func__, __LINE__);
 
-	gl_loadProgram();
-
-	int i;
-	glGenBuffers(DS_CHAN_MAX, buffId_input);
-	glGenTextures(DS_CHAN_MAX, textureId_input);
-	for(i=0; i<DS_CHAN_MAX; i++)
-	{
-		glBindTexture(GL_TEXTURE_2D, textureId_input[i]);
-		assert(glIsTexture(textureId_input[i]));
-		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);//GL_NEAREST);//GL_NEAREST_MIPMAP_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);//GL_NEAREST);//GL_NEAREST_MIPMAP_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);//GL_CLAMP);//GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);//GL_CLAMP);//GL_CLAMP_TO_EDGE);
-		glTexImage2D(GL_TEXTURE_2D, 0, 3, 1920, 1080, 0, GL_BGR_EXT, GL_UNSIGNED_BYTE, NULL);
-	}
-
-	for(i=0; i<DS_CHAN_MAX; i++){
-		m_glmat44fTrans[i] = cv::Matx44f::eye();
-	}
-	for(i=0; i<DS_CHAN_MAX*DS_CHAN_MAX; i++){
-		m_glmat44fBlend[i] = cv::Matx44f::eye();
-		m_glBlendPrm[i].fAlpha = 0.5f;
-		m_glBlendPrm[i].thr0Min = 0;
-		m_glBlendPrm[i].thr0Max = 0;
-		m_glBlendPrm[i].thr1Min = 0;
-		m_glBlendPrm[i].thr1Max = 0;
-	}
-
-	//glEnable(GL_LINE_SMOOTH);
-	//glHint(GL_LINE_SMOOTH_HINT, GL_DONT_CARE);
-	glClear(GL_COLOR_BUFFER_BIT);
-
-	for(int chId=0; chId<m_initPrm.nChannels; chId++){
-		image_queue_create(&m_bufQue[chId], m_initPrm.nQueueSize,
-				m_initPrm.channelsSize[chId].w*m_initPrm.channelsSize[chId].h*m_initPrm.channelsSize[chId].c,
-				m_initPrm.memType);
-		for(int i=0; i<m_bufQue[chId].numBuf; i++){
-			m_bufQue[chId].bufInfo[i].width = m_initPrm.channelsSize[chId].w;
-			m_bufQue[chId].bufInfo[i].height = m_initPrm.channelsSize[chId].h;
-			m_bufQue[chId].bufInfo[i].channels = m_initPrm.channelsSize[chId].c;
-		}
-	}
+	gl_init();
+#endif
 
 	return 0;
 }
 
+#ifdef __UI_EGL
+int CRender::renderHandle(void)
+{
+	{
+		EGLBoolean egl_status;
+		static EGLint rgba8888[] = {
+			EGL_RED_SIZE, 8,
+			EGL_GREEN_SIZE, 8,
+			EGL_BLUE_SIZE, 8,
+			EGL_ALPHA_SIZE, 8,
+			EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+			EGL_NONE,
+		};
+		int num_configs = 0;
+		EGLint context_attribs[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
+		egl_display = eglGetDisplay(x_display);
+		if (EGL_NO_DISPLAY == egl_display)
+		{
+			OSA_printf("[Render] %s %d: Unable to get egl display", __func__, __LINE__);
+			return OSA_EFAIL;
+		}
+		OSA_printf("[Render] %s %d: Egl Got display %ld", __func__, __LINE__, (size_t)egl_display);
+
+		egl_status = eglInitialize(egl_display, 0, 0);
+		if (!egl_status)
+		{
+			OSA_printf("[Render] %s %d: Unable to initialize egl library", __func__, __LINE__);
+			return OSA_EFAIL;
+		}
+
+		egl_status = eglChooseConfig(egl_display, rgba8888, &egl_config, 1, &num_configs);
+		if (!egl_status)
+		{
+			OSA_printf("[Render] %s %d: Error at eglChooseConfig", __func__, __LINE__);
+			return OSA_EFAIL;
+		}
+		OSA_printf("[Render] %s %d: Got numconfigs as %d", __func__, __LINE__, num_configs);
+
+		egl_context = eglCreateContext(egl_display, egl_config, EGL_NO_CONTEXT, context_attribs);
+		if (eglGetError() != EGL_SUCCESS)
+		{
+			OSA_printf("[Render] %s %d: Error in eglCreateContext %d", __func__, __LINE__, eglGetError());
+			return OSA_EFAIL;
+		}
+		OSA_printf("[Render] %s %d: eglCreateContext success", __func__, __LINE__);
+		egl_surface = eglCreateWindowSurface(egl_display, egl_config,(EGLNativeWindowType)x_window, NULL);
+		if (egl_surface == EGL_NO_SURFACE)
+		{
+			OSA_printf("[Render] %s %d: Error in creating egl surface %d", __func__, __LINE__, eglGetError());
+			return OSA_EFAIL;
+		}
+		OSA_printf("[Render] %s %d: eglCreateWindowSurface success", __func__, __LINE__);
+
+		eglMakeCurrent(egl_display, egl_surface, egl_surface, egl_context);
+		if (eglGetError() != EGL_SUCCESS)
+		{
+			OSA_printf("[Render] %s %d: Error in eglMakeCurrent %d", __func__, __LINE__, eglGetError());
+			return OSA_EFAIL;
+		}
+		OSA_printf("[Render] %s %d: eglMakeCurrent success", __func__, __LINE__);
+
+		if(gl_init() != OSA_SOK)
+			return OSA_EFAIL;
+	}
+
+	return OSA_SOK;
+}
+#endif
+
 int CRender::destroy()
 {
-	cudaError_t et;
+#ifdef __UI_EGL
+	{
+		EGLBoolean egl_status;
+	    if (egl_display != EGL_NO_DISPLAY)
+	    {
+	        eglMakeCurrent(egl_display, EGL_NO_SURFACE,EGL_NO_SURFACE, EGL_NO_CONTEXT);
+	    }
+
+	    if (egl_surface != EGL_NO_SURFACE)
+	    {
+	        egl_status = eglDestroySurface(egl_display, egl_surface);
+	        if (egl_status == EGL_FALSE)
+	        {
+	            OSA_printf("[Render]%s %d: EGL surface destruction failed", __func__, __LINE__);
+	        }
+	    }
+
+	    if (egl_context != EGL_NO_CONTEXT)
+	    {
+	        egl_status = eglDestroyContext(egl_display, egl_context);
+	        if (egl_status == EGL_FALSE)
+	        {
+	            OSA_printf("[Render]%s %d: EGL context destruction failed", __func__, __LINE__);
+	        }
+	    }
+
+	    if (egl_display != EGL_NO_DISPLAY)
+	    {
+	        eglReleaseThread();
+	        eglTerminate(egl_display);
+	    }
+	}
+	if (fontinfo)
+	{
+		XFreeFont(x_display, fontinfo);
+	}
+
+	if (gc)
+	{
+		XFreeGC(x_display, gc);
+	}
+
+	if (x_window)
+	{
+		XUnmapWindow(x_display, (int32_t) x_window);
+		XFlush(x_display);
+		XDestroyWindow(x_display, (int32_t) x_window);
+	}
+	if (x_display)
+	{
+		XCloseDisplay(x_display);
+	}
+#else
 	glutLeaveMainLoop();
-	gl_unloadProgram();
-	glDeleteTextures(DS_CHAN_MAX, textureId_input);
-	glDeleteBuffers(DS_CHAN_MAX, buffId_input);
-	for(int chId=0; chId<DS_CHAN_MAX; chId++)
-		cudaResource_UnregisterBuffer(chId);
-	for(int chId=0; chId<m_initPrm.nChannels; chId++)
-		image_queue_delete(&m_bufQue[chId]);
+#endif
+
+	gl_uninit();
 	OSA_mutexDelete(&m_mutex);
 	return 0;
 }
@@ -286,26 +430,6 @@ void CRender::_display(void)
 {
 	OSA_assert(gThis->tag == TAG_VALUE);
 	gThis->gl_display();
-}
-
-void CRender::disp_fps(){
-    static GLint frames = 0;
-    static GLint t0 = 0;
-    static char  fps_str[20] = {'\0'};
-    GLint t = glutGet(GLUT_ELAPSED_TIME);
-    sprintf(fps_str, "%6.1f FPS\n", 0.0f);
-    if (t - t0 >= 200) {
-        GLfloat seconds = (t - t0) / 1000.0;
-        GLfloat fps = frames / seconds;
-        sprintf(fps_str, "%6.1f FPS\n", fps);
-        printf("%6.1f FPS\n", fps);
-        t0 = t;
-        frames = 0;
-    }
-    glColor3f(0.0, 0.0, 1.0);
-    glRasterPos2f(0.5, 0.5);
-    glutBitmapString(GLUT_BITMAP_HELVETICA_18, (unsigned char *)fps_str);
-    frames++;
 }
 
 void CRender::_reshape(int width, int height)
@@ -473,23 +597,60 @@ GLuint CRender::async_display(int chId, int width, int height, int channels)
 	return buffId_input[chId];
 }
 
-int CRender::setFullScreen(bool bFull)
-{
-	if(bFull)
-		glutFullScreen();
-	else{
-
-	}
-	m_bFullScreen = bFull;
-
-	return 0;
-}
-
 /***********************************************************************/
 
 #define TEXTURE_ROTATE (0)
 #define ATTRIB_VERTEX 3
 #define ATTRIB_TEXTURE 4
+
+int CRender::gl_init(void)
+{
+	// Blue background
+	glClearColor(0.0f, 0.0f, 0.01f, 0.0f );
+	gl_loadProgram();
+	OSA_printf("[Render] %s %d: gl_loadProgram success", __func__, __LINE__);
+
+	glGenBuffers(DS_CHAN_MAX, buffId_input);
+	glGenTextures(DS_CHAN_MAX, textureId_input);
+	for(int i=0; i<DS_CHAN_MAX; i++)
+	{
+		glBindTexture(GL_TEXTURE_2D, textureId_input[i]);
+		assert(glIsTexture(textureId_input[i]));
+		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);//GL_NEAREST);//GL_NEAREST_MIPMAP_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);//GL_NEAREST);//GL_NEAREST_MIPMAP_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);//GL_CLAMP);//GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);//GL_CLAMP);//GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_2D, 0, 3, 1920, 1080, 0, GL_BGR_EXT, GL_UNSIGNED_BYTE, NULL);
+	}
+
+	//glEnable(GL_LINE_SMOOTH);
+	//glHint(GL_LINE_SMOOTH_HINT, GL_DONT_CARE);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	for(int chId=0; chId<m_initPrm.nChannels; chId++){
+		image_queue_create(&m_bufQue[chId], m_initPrm.nQueueSize,
+				m_initPrm.channelsSize[chId].w*m_initPrm.channelsSize[chId].h*m_initPrm.channelsSize[chId].c,
+				m_initPrm.memType);
+		for(int i=0; i<m_bufQue[chId].numBuf; i++){
+			m_bufQue[chId].bufInfo[i].width = m_initPrm.channelsSize[chId].w;
+			m_bufQue[chId].bufInfo[i].height = m_initPrm.channelsSize[chId].h;
+			m_bufQue[chId].bufInfo[i].channels = m_initPrm.channelsSize[chId].c;
+		}
+	}
+
+	return OSA_SOK;
+}
+
+void CRender::gl_uninit()
+{
+	gl_unloadProgram();
+	glDeleteTextures(DS_CHAN_MAX, textureId_input);
+	glDeleteBuffers(DS_CHAN_MAX, buffId_input);
+	for(int chId=0; chId<DS_CHAN_MAX; chId++)
+		cudaResource_UnregisterBuffer(chId);
+	for(int chId=0; chId<m_initPrm.nChannels; chId++)
+		image_queue_delete(&m_bufQue[chId]);
+}
 
 int CRender::gl_updateVertex(void)
 {
@@ -554,17 +715,18 @@ void CRender::gl_updateTexVideo()
 		Mat img;
 		int count = OSA_bufGetFullCount(&m_bufQue[chId]);
 		nCnt[chId] ++;
-		if(nCnt[chId] > 300 && count>1){
+		if(nCnt[chId] > 300){
 			nCnt[chId] = 0;
-
-			OSA_printf("[%d]%s: ch%d queue count = %d, sync!!!\n",
-									OSA_getCurTimeInMsec(), __func__, chId, count);
-			while(count>1){
-				//image_queue_switchEmpty(&m_bufQue[chId]);
-				info = image_queue_getFull(&m_bufQue[chId]);
-				OSA_assert(info != NULL);
-				image_queue_putEmpty(&m_bufQue[chId], info);
-				count = OSA_bufGetFullCount(&m_bufQue[chId]);
+			if(count>1){
+				OSA_printf("[%d]%s: ch%d queue count = %d, sync!!!\n",
+										OSA_getCurTimeInMsec(), __func__, chId, count);
+				while(count>1){
+					//image_queue_switchEmpty(&m_bufQue[chId]);
+					info = image_queue_getFull(&m_bufQue[chId]);
+					OSA_assert(info != NULL);
+					image_queue_putEmpty(&m_bufQue[chId], info);
+					count = OSA_bufGetFullCount(&m_bufQue[chId]);
+				}
 			}
 		}
 
@@ -924,9 +1086,13 @@ void CRender::gl_display(void)
 
 	m_waitSync = true;
 	int64 tcur = tStamp[5];
-	m_telapse = (tStamp[5] - tStamp[1])*0.000001f + 3.0;
+	m_telapse = (tStamp[5] - tStamp[1])*0.000001f + 3.5;
 
+#ifdef __UI_EGL
+	eglSwapBuffers(egl_display, egl_surface);
+#else
 	glutSwapBuffers();
+#endif
 	tStamp[6] = getTickCount();
 	if(m_initPrm.renderfunc != NULL)
 		m_initPrm.renderfunc(RUN_LEAVE, 0, 0);
@@ -953,7 +1119,9 @@ void CRender::gl_display(void)
 	//	OSA_printf("%s %d: null", __func__, __LINE__);
 	//}
 	m_tmRender = tend;
+#ifndef __UI_EGL
 	glutPostRedisplay();
+#endif
 }
 
 //////////////////////////////////////////////////////

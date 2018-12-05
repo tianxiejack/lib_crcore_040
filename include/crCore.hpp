@@ -14,7 +14,7 @@
 #include "osa.h"
 #include "osa_sem.h"
 
-#define CORE_1001_VERSION_  "1.0.4"
+#define CORE_1001_VERSION_  "1.0.5"
 #define COREID_1001			(0x10010000)
 #define COREID_1001_040		(CORNID_1001 + 1)
 
@@ -42,6 +42,7 @@ typedef struct _core_1001_chn_stats{
 	bool enableEnh;
 	int iEZoomx;
 	bool enableEncoder;
+	uint64_t frameTimestamp;
 }CORE1001_CHN_STATS;
 
 typedef struct _core_1001_stats{
@@ -56,6 +57,8 @@ typedef struct _core_1001_stats{
 	CORE_TGT_INFO tgts[CORE_TGT_NUM_MAX];
 	CORE1001_CHN_STATS chn[CORE_CHN_MAX];
 	CORE_TGT_INFO blob;
+	unsigned int lossCoastFrames;
+	unsigned int lossCoastTelapse;//ms
 }CORE1001_STATS;
 
 typedef struct _core_1001_chnInfo_init{

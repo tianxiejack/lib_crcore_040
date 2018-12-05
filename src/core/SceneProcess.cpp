@@ -1,9 +1,14 @@
 #if 1
-#include "backgroundProcess.hpp"
+#include "SceneProcess.hpp"
+#include <sys/time.h>
 
-#define CONFIG_BKGD_FILE		"ConfigBkgdDetectFile.yml"
 
-CBkgdDetectProcess::CBkgdDetectProcess(IProcess *proc)
+#define CONFIG_BKGD_FILE		"ConfigSceneFile.yml"
+using namespace cr_osd;
+
+//#define DBG_WAVE
+
+CSceneProcess::CSceneProcess(IProcess *proc)
 	:CProcessBase(proc),m_curChId(0), m_bEnable(false)
 {
 	memset(m_cnt, 0, sizeof(m_cnt));
@@ -12,19 +17,23 @@ CBkgdDetectProcess::CBkgdDetectProcess(IProcess *proc)
 		m_imgSize[chId].height = 1080;
 	}
 
-	m_alpha = 0.5;
-	m_thr0Min = 0;
-	m_thr0Max = 0;
-	m_thr1Min = 0;
-	m_thr1Max = 0;
-
-	m_mode = 0x01;
-	m_threshold = 0.05f;
 	ReadCfgFile();
+#ifdef DBG_WAVE
+	vArrayOrg.clear();
+	vArrayFilter.clear();
+	vArrayOrg.resize(300);
+	vArrayFilter.resize(300);
+	patOrg = IPattern::Create(&vArrayOrg, cv::Rect(0, 0, 600, 200), cv::Scalar(0, 0, 255, 255));
+	patFilter = IPattern::Create(&vArrayFilter, cv::Rect(0, 200, 600, 200), cv::Scalar(0, 255, 0, 255));
+#endif
 }
 
-CBkgdDetectProcess::~CBkgdDetectProcess()
+CSceneProcess::~CSceneProcess()
 {
+#ifdef DBG_WAVE
+	IPattern::Destroy(patOrg);
+	IPattern::Destroy(patFilter);
+#endif
 }
 
 inline Rect tRectCropScale(cv::Size imgSize, float fs)
@@ -81,7 +90,7 @@ inline void mResizeX2(Mat src, Mat dst)
 	}
 }
 
-int CBkgdDetectProcess::process(int chId, int fovId, int ezoomx, Mat frame, uint64_t timestamp)
+int CSceneProcess::process(int chId, int fovId, int ezoomx, Mat frame, uint64_t timestamp)
 {
 	int iRet = CProcessBase::process(chId, fovId, ezoomx, frame, timestamp);
 
@@ -93,83 +102,46 @@ int CBkgdDetectProcess::process(int chId, int fovId, int ezoomx, Mat frame, uint
 
 	if(m_bEnable)
 	{
-		m_cnt[chId]++;
 		detect(frame, chId);
+		m_cnt[chId]++;
 	}
 
 	return iRet;
 }
-void CBkgdDetectProcess::detect(Mat frame, int chId)
+#define M3D_PI_DIV_180 (0.017453292519943296)
+void CSceneProcess::detect(const Mat& frame, int chId)
 {
-	Mat hist;
-	int histSize[1];
-	int channels[1];
-	const float *ranges[1];
-	float hranges[2];
-	histSize[0] = 256;
-	hranges[0] = 0.0;
-	hranges[1] = 256.0;
-	ranges[0] = hranges;
-	channels[0] = 0;
-	cv::calcHist(&frame, 1, channels, cv::Mat(), hist,1, histSize,  ranges);
+	Rect roi = Rect(100-100*sin((m_cnt[chId]%60)*6*M3D_PI_DIV_180), 100, frame.cols-200, frame.rows-200);
+	Mat frameROI(frame, roi);
 
-	float thr0Min = 0.0;
-	float thr0Max = 0.0;
-	float thr1Min = 0.0;
-	float thr1Max = 0.0;
-	int mode = m_mode;
-	int whitethr = 256;
-	int blackthr = 0;
-	int ptthred = (int)(frame.rows*frame.cols*m_threshold);
-	int whiteout = 0;
-	int blackout = 0;
-	if((mode&0x01) == 0x01){
-		int cout =0;
-		int i;
-		for(i=255; i>=0; --i){
-			cout+=hist.at<float>(i);
-			if(cout>ptthred)
-				break;
-		}
-		if(i<128) i=128;
-		thr1Min = i/255.0;
-		thr1Max = 1.0;
-		whitethr = i;
-		whiteout = cout;
-	}
-	if((mode&0x02) == 0x02){
-		int cout =0;
-		int i;
-		for(i=0; i<256; ++i){
-			cout+=hist.at<float>(i);
-			if(cout>ptthred)
-				break;
-		}
-		if(i>128) i=128;
-		thr0Min = 0;
-		thr0Max = i/255.0;
-		blackthr = i;
-		blackout = cout;
-	}
-	if(mode == 0x08){
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	unsigned int us = now.tv_sec*1000000+now.tv_nsec/1000;
+	*(unsigned int*)frameROI.data = us;
 
-	}
-
-	m_thr0Min = thr0Min;
-	m_thr0Max = thr0Max;
-	m_thr1Min = thr1Min;
-	m_thr1Max = thr1Max;
-	//OSA_printf("(%d) ||%d %d %f, %f, || %d %d %f, %f",
-	//		ptthred, blackthr, blackout, m_thr0Min, m_thr0Max,
-	//		whitethr, whiteout, m_thr1Min, m_thr1Max);
+	if(m_cnt[chId] == 0)
+		m_obj.InitSceneLock(frameROI);
+	else
+		m_obj.CalSceneLock(frameROI);
+#ifdef DBG_WAVE
+	vArrayOrg.erase(vArrayOrg.begin());
+	vArrayOrg.push_back(m_obj.m_instanVel.x/15.f);
+	//vArrayOrg.push_back(sin((m_cnt[chId]%60)*6*M3D_PI_DIV_180));
+	vArrayFilter.erase(vArrayFilter.begin());
+	vArrayFilter.push_back(m_obj.m_filterVel.x/15.0f);
+#endif
 }
 
-int CBkgdDetectProcess::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd)
+int CSceneProcess::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *osd)
 {
+
 	int ret = CProcessBase::OnOSD(chId, fovId, ezoomx, dc, osd);
+
+
+
 }
 
-int CBkgdDetectProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSize)
+int CSceneProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSize)
 {
 	int iret = OSA_SOK;
 
@@ -178,11 +150,11 @@ int CBkgdDetectProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSi
 	if(type<VP_CFG_BASE || type>VP_CFG_Max)
 		return iret;
 
-	//cout << "CBkgdDetectProcess::dynamic_config type " << type << " iPrm " << iPrm << endl;
+	//cout << "CSceneProcess::dynamic_config type " << type << " iPrm " << iPrm << endl;
 	OSA_mutexLock(&m_mutexlock);
 	switch(type)
 	{
-	case VP_CFG_BkgdDetectEnable:
+	case VP_CFG_SceneEnable:
 		m_bEnable = iPrm;
 		if(pPrm != NULL)
 			m_curChId = *(int*)pPrm;
@@ -196,7 +168,7 @@ int CBkgdDetectProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSi
 	return iret;
 }
 
-int CBkgdDetectProcess::ReadCfgFile()
+int CSceneProcess::ReadCfgFile()
 {
 	int iret = -1;
 	string cfgFile;
@@ -213,21 +185,10 @@ int CBkgdDetectProcess::ReadCfgFile()
 			FileStorage fr(cfgFile, FileStorage::READ);
 			if(fr.isOpened())
 			{
-				m_mode = (int)fr["cfg_mode"];
-
-				float fvalue;
-				fvalue = (float)fr["cfg_threshold"];
-				if(fvalue>0.0000001 && fvalue<1.0001)
-					m_threshold = fvalue;
-				fvalue = (float)fr["cfg_alpha"];
-				if(fvalue>0.0000001 && fvalue<1.0001)
-					m_alpha = fvalue;
-
-				iret = 0;
 			}
 		}
 	}
-	OSA_printf("BkgdDetect %s: mode %d thr %f alpha %f\n",__func__, m_mode, m_threshold, m_alpha);
+	//OSA_printf("BkgdDetect %s: mode %d thr %f alpha %f\n",__func__, m_mode, m_threshold, m_alpha);
 	return iret;
 }
 #endif

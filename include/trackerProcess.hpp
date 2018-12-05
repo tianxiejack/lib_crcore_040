@@ -14,6 +14,7 @@ typedef struct _main_thr_obj_cxt{
 	int 	chId;
 	int     fovId;
 	int     ezoomx;
+	uint64_t timestamp;
 }MAIN_ProcThrObj_cxt;
 
 typedef struct _main_thr_obj{
@@ -69,7 +70,7 @@ public://close
 	virtual int dynamic_config(int type, int iPrm, void* pPrm = NULL, int prmSize = 0);
 	int run();
 	int stop();
-	virtual int process(int chId, int fovId, int ezoomx, Mat frame);
+	virtual int process(int chId, int fovId, int ezoomx, Mat frame, uint64_t timestamp);
 
 	cv::Size m_imgSize[MAX_CHAN];
 	float m_AxisCalibX[MAX_CHAN][MAX_NFOV_PER_CHAN];
@@ -82,6 +83,9 @@ public://close
 	bool m_bTrack;
 	int m_iTrackStat;
 	int m_iTrackLostCnt;
+	uint64_t m_frameTimestamp[MAX_CHAN];
+	Uint32 m_telapseLost;
+	Uint32 m_lossCoastTelapseMax;
 	UTC_SIZE m_sizeAcqWin;
 	UTC_RECT_float m_rcAcq;
 	UTC_RECT_float m_rcTrk;
@@ -149,10 +153,9 @@ private:
 
 	//static void extractYUYV2Gray(Mat src, Mat dst);
 
-	static int64 tstart;
-
 protected:
 
+	uint64_t m_lostTimestamp;
 	bool m_bFixSize;
 	int m_intervalFrame;
 	int m_reTrackStat;
