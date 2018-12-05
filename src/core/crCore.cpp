@@ -1200,6 +1200,7 @@ class Core_1001 : public ICore_1001
 public:
 	static char m_version[16];
 	static unsigned int ID;
+	static wchar_t sztest[128];
 	virtual int init(void *pParam, int paramSize)
 	{
 		printf("\r\n crCore(ID:%08X) v%s--------------Build date: %s %s \r\n",
@@ -1216,6 +1217,7 @@ public:
 			m_dc[chId] = cr_local::general->m_dc[chId];
 		m_bRun = true;
 		start_thread(thrdhndl_update, this);
+		cr_osd::put(sztest, cv::Point(800, 30), cv::Scalar(80, 80, 80, 10), 128, L"== ID:%x v%s ==", ID, m_version);
 		return ret;
 	}
 	virtual int uninit()
@@ -1230,19 +1232,15 @@ public:
 	}
 	virtual void processFrame(int chId, unsigned char *data, struct v4l2_buffer capInfo, int format)
 	{
-		cr_local::videoInput(chId, data, capInfo, format);
-		if(1)
-		{
-			static wchar_t test[128] = L"***********0123456789***********";
-			static unsigned long icnt = 0;
-			if(icnt == 0)
-				cr_osd::put(test, cv::Point(800, 30), cv::Scalar(80, 80, 80, 10), 128, L"== ID:%x v%s ==", ID, m_version);
-			if(icnt == 10)
-				swprintf(test, 128, L"");
-			icnt++;
-			//if(icnt == 1000)
-			//	icnt = 0;
+		static unsigned int cnt = 10;
+		if(capInfo.flags & V4L2_BUF_FLAG_ERROR){
+			swprintf(sztest, 128, L"== ID:%x v%s ==", ID, m_version);
+			cnt = 10;
+		}else if(cnt==0){
+			swprintf(sztest, 128, L"");
 		}
+		cnt = (cnt > 0) ? (cnt-1) : 0;
+		cr_local::videoInput(chId, data, capInfo, format);
 	}
 
 	virtual int setMainChId(int chId, int fovId, int ndrop, cv::Size acqSize)
@@ -1404,6 +1402,7 @@ public:
 };
 unsigned int Core_1001::ID = COREID_1001;
 char Core_1001::m_version[16] = CORE_1001_VERSION_;
+wchar_t Core_1001::sztest[128] = L"";
 
 void Core_1001::update()
 {
