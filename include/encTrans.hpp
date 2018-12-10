@@ -40,6 +40,7 @@ typedef struct _enctran_init_param
 	CAPTURE_SRC srcType[ENT_CHN_MAX];
 	ENCTRAN_encPrm encPrm[ENT_CHN_MAX];
 	cv::Size imgSize[ENT_CHN_MAX];
+	int inputFPS[ENT_CHN_MAX];
 	int nChannels;
 }ENCTRAN_InitPrm;
 

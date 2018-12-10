@@ -48,9 +48,7 @@
 									<listOptionValue builtIn="false" value="../src/libjpeg-8b"/>
 									<listOptionValue builtIn="false" value="../src/nvMedia/libjpeg-8b"/>
 								</option>
-								<option id="nvcc.compiler.def.symbols.827965124" name="Defined symbols (-D)" superClass="nvcc.compiler.def.symbols" valueType="definedSymbols">
-									<listOptionValue builtIn="false" value="__UI_EGL"/>
-								</option>
+								<option id="nvcc.compiler.def.symbols.827965124" name="Defined symbols (-D)" superClass="nvcc.compiler.def.symbols" valueType="definedSymbols"/>
 								<inputType id="nvcc.compiler.input.cu.1755647641" superClass="nvcc.compiler.input.cu"/>
 								<inputType id="nvcc.compiler.input.cpp.99661771" superClass="nvcc.compiler.input.cpp"/>
 								<inputType id="nvcc.compiler.input.c.1855742994" superClass="nvcc.compiler.input.c"/>

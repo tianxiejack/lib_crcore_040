@@ -182,6 +182,8 @@ class GLOSDFactory : public IDirectOSD
 {
 public:
 	cv::Size m_viewport;
+	virtual void sharelock(void) = 0;
+	virtual void shareunlock(void) = 0;
 	virtual void Draw(void) = 0;
 	virtual void Add(IPattern* ptt) = 0;
 	virtual void Erase(IPattern* ptt) = 0;
@@ -229,7 +231,8 @@ public:
 	virtual void Add(GLOSDUNITBase* unit);
 	virtual void Erase(GLOSDUNITBase* unit);
 	virtual void SetThickness(GLOSDUNITBase* unit, int thickness);
-
+	virtual void sharelock(void){OSA_mutexLock(&m_mutexlock);};
+	virtual void shareunlock(void){OSA_mutexUnlock(&m_mutexlock);};
 };
 class GLOSD : public GLOSDFactoryBase
 {
@@ -246,7 +249,7 @@ protected:
 		//OSA_printf("%s: (%d,%d)(%f %f)(%f %f)", __func__, pt.x, pt.y, rpt.x,rpt.y,m_center.x, m_center.y);
 		return rpt;
 	}
-	void directDraw(const cv::Scalar& norColor, int  thickness);
+	void directDraw(const cv::Scalar& norColor, float  thickness);
 public:
 	GLOSD(int vWidth = 1920, int vHeight = 1080, int fontSize = 45, const char* faceName = NULL);
 	virtual ~GLOSD(void);

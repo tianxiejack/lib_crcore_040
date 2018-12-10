@@ -26,6 +26,7 @@ void CEncTrans::pushData(Mat img, int chId, int pixFmt)
 {
 	OSA_assert(pixFmt == V4L2_PIX_FMT_YUV420M);
 	//return CRender::display(img, chId, code);
+	//OSA_printf("[CEncTrans]%s %d: ch%d enable%d", __func__, __LINE__, chId, m_enable[chId]);
 	if(m_enable[chId]){
 		gstCapturePushData(m_record_handle[chId],(char *)img.data,img.cols*img.rows*img.channels());
 	}

@@ -57,7 +57,7 @@ CRender::CRender()
 		m_blendMap[chId] = -1;
 		m_maskMap[chId] = -1;
 	}
-#ifdef __UI_EGL
+#ifdef __EGL__
     stop_thread = false;
     render_thread = 0;
     x_window = 0;
@@ -103,15 +103,15 @@ int CRender::create(DS_InitPrm *pPrm)
 	for(int i=0; i<DS_RENDER_MAX; i++){
 		m_renders[i].transform = cv::Matx44f::eye();
 	}
-	memset(&m_videoSize[0], 0, sizeof(DS_Size)*DS_CHAN_MAX);
+	memset(m_videoInfo, 0, sizeof(m_videoInfo));
 
 	char strParams[][32] = {"DS_RENDER", "-display", ":0"};
 	char *argv[3];
-	int argc = 3;
+	int argc = 1;
 	for(int i=0; i<argc; i++)
 		argv[i] = strParams[i];
 	uint32_t screenWidth = 0, screenHeight = 0;
-	if(getDisplayResolution(strParams[2], screenWidth, screenHeight) == 0)
+	if(getDisplayResolution(NULL, screenWidth, screenHeight) == 0)
 	{
 		m_mainWinWidth = screenWidth;
 		m_mainWinHeight = screenHeight;
@@ -149,14 +149,14 @@ int CRender::create(DS_InitPrm *pPrm)
 		m_glBlendPrm[i].thr1Max = 0;
 	}
 
-#ifdef __UI_EGL
+#ifdef __EGL__
     int depth;
     int screen_num;
     uint32_t width = m_mainWinWidth, height = m_mainWinHeight, x_offset = 0, y_offset = 0;
     XSetWindowAttributes window_attributes;
     memset(&window_attributes, 0, sizeof(window_attributes));
 
-    x_display = XOpenDisplay(strParams[2]);
+    x_display = XOpenDisplay(NULL);
     if (NULL == x_display)
     {
         OSA_printf("[Render] %s %d: Error in opening display", __func__, __LINE__);
@@ -194,42 +194,42 @@ int CRender::create(DS_InitPrm *pPrm)
     pthread_mutex_unlock(&render_lock);
 
 #else
-   // GLUT init
+    // GLUT init
     glutInit(&argc, argv);
+    int glut_screen_width = glutGet(GLUT_SCREEN_WIDTH);
+    int glut_screen_height = glutGet(GLUT_SCREEN_HEIGHT);
+    OSA_printf("%s %d: glutGet %d x %d", __func__, __LINE__, glut_screen_width, glut_screen_height);
 	//Double, Use glutSwapBuffers() to show
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_MULTISAMPLE);
 	//Single, Use glFlush() to show
 	//glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB );
-
-    //glutInitWindowPosition(m_initPrm.winPosX, m_initPrm.winPosY);
+    glutInitWindowPosition(m_initPrm.winPosX, m_initPrm.winPosY);
     glutInitWindowSize(m_mainWinWidth, m_mainWinHeight);
+    OSA_printf("%s %d: window(%d,%d,%d,%d)",__func__, __LINE__, m_initPrm.winPosX, m_initPrm.winPosY, m_mainWinWidth, m_mainWinHeight);
+
     int winId = glutCreateWindow("DSS");
     OSA_assert(winId > 0);
-    //int subId = glutCreateSubWindow( winId, 0, 0, m_mainWinWidth, m_mainWinHeight );
+	if(m_initPrm.bFullScreen){
+		glutFullScreen();
+		m_bFullScreen = true;
+	}
+    //int subId = glutCreateSubWindow( winId, 1930, 0, 1024, 768 );
     //OSA_assert(subId > 0);
-    //glutSetWindow(subId);
+	glutSetWindow(winId);
 	glutDisplayFunc(_display);
 	glutReshapeFunc(_reshape);
-
 	if(m_initPrm.keyboardfunc != NULL)
 		glutKeyboardFunc(m_initPrm.keyboardfunc);
 	if(m_initPrm.keySpecialfunc != NULL)
 		glutSpecialFunc(m_initPrm.keySpecialfunc);
-
 	//mouse event:
 	if(m_initPrm.mousefunc != NULL)
 		glutMouseFunc(m_initPrm.mousefunc);//GLUT_LEFT_BUTTON GLUT_MIDDLE_BUTTON GLUT_RIGHT_BUTTON; GLUT_DOWN GLUT_UP
 	//glutMotionFunc();//button down
 	//glutPassiveMotionFunc();//button up
 	//glutEntryFunc();//state GLUT_LEFT, GLUT_ENTERED
-
 	if(m_initPrm.visibilityfunc != NULL)
 		glutVisibilityFunc(m_initPrm.visibilityfunc);
-
-	if(m_initPrm.bFullScreen){
-		glutFullScreen();
-		m_bFullScreen = true;
-	}
 	glutCloseFunc(_close);
 
 	GLenum err = glewInit();
@@ -240,12 +240,13 @@ int CRender::create(DS_InitPrm *pPrm)
 	OSA_printf("[Render] %s %d: glewInit success", __func__, __LINE__);
 
 	gl_init();
+	OSA_printf("[Render] %s %d: gl_init success", __func__, __LINE__);
 #endif
 
 	return 0;
 }
 
-#ifdef __UI_EGL
+#ifdef __EGL__
 int CRender::renderHandle(void)
 {
 	{
@@ -316,7 +317,7 @@ int CRender::renderHandle(void)
 
 int CRender::destroy()
 {
-#ifdef __UI_EGL
+#ifdef __EGL__
 	{
 		EGLBoolean egl_status;
 	    if (egl_display != EGL_NO_DISPLAY)
@@ -429,6 +430,7 @@ int CRender::initRender(bool updateMap)
 void CRender::_display(void)
 {
 	OSA_assert(gThis->tag == TAG_VALUE);
+	//OSA_printf("%s %d: winId = %d", __func__, __LINE__, glutGetWindow());
 	gThis->gl_display();
 }
 
@@ -575,12 +577,12 @@ GLuint CRender::async_display(int chId, int width, int height, int channels)
 {
 	assert(chId>=0 && chId<DS_CHAN_MAX);
 
-	if(m_videoSize[chId].w  == width  && m_videoSize[chId].h == height && m_videoSize[chId].c == channels )
+	if(m_videoInfo[chId].w  == width  && m_videoInfo[chId].h == height && m_videoInfo[chId].c == channels )
 		return buffId_input[chId];
 
 	//OSA_printf("%s: w = %d h = %d (%dx%d) cur %d\n", __FUNCTION__, width, height, m_videoSize[chId].w, m_videoSize[chId].h, buffId_input[chId]);
 
-	if(m_videoSize[chId].w != 0){
+	if(m_videoInfo[chId].w != 0){
 		glDeleteBuffers(1, &buffId_input[chId]);
 		glGenBuffers(1, &buffId_input[chId]);
 	}
@@ -589,9 +591,9 @@ GLuint CRender::async_display(int chId, int width, int height, int channels)
 	glBufferData(GL_PIXEL_UNPACK_BUFFER, width*height*channels, NULL, GL_DYNAMIC_COPY);//GL_STATIC_DRAW);//GL_DYNAMIC_DRAW);
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
-	m_videoSize[chId].w = width;
-	m_videoSize[chId].h = height;
-	m_videoSize[chId].c = channels;
+	m_videoInfo[chId].w = width;
+	m_videoInfo[chId].h = height;
+	m_videoInfo[chId].c = channels;
 
 	//OSA_printf("%s: w = %d h = %d (%dx%d) out %d\n", __FUNCTION__, width, height, m_videoSize[chId].w, m_videoSize[chId].h, buffId_input[chId]);
 	return buffId_input[chId];
@@ -606,7 +608,7 @@ GLuint CRender::async_display(int chId, int width, int height, int channels)
 int CRender::gl_init(void)
 {
 	// Blue background
-	glClearColor(0.0f, 0.0f, 0.01f, 0.0f );
+	glClearColor(1.0f, 0.0f, 0.01f, 0.0f );
 	gl_loadProgram();
 	OSA_printf("[Render] %s %d: gl_loadProgram success", __func__, __LINE__);
 
@@ -629,12 +631,12 @@ int CRender::gl_init(void)
 
 	for(int chId=0; chId<m_initPrm.nChannels; chId++){
 		image_queue_create(&m_bufQue[chId], m_initPrm.nQueueSize,
-				m_initPrm.channelsSize[chId].w*m_initPrm.channelsSize[chId].h*m_initPrm.channelsSize[chId].c,
+				m_initPrm.channelInfo[chId].w*m_initPrm.channelInfo[chId].h*m_initPrm.channelInfo[chId].c,
 				m_initPrm.memType);
 		for(int i=0; i<m_bufQue[chId].numBuf; i++){
-			m_bufQue[chId].bufInfo[i].width = m_initPrm.channelsSize[chId].w;
-			m_bufQue[chId].bufInfo[i].height = m_initPrm.channelsSize[chId].h;
-			m_bufQue[chId].bufInfo[i].channels = m_initPrm.channelsSize[chId].c;
+			m_bufQue[chId].bufInfo[i].width = m_initPrm.channelInfo[chId].w;
+			m_bufQue[chId].bufInfo[i].height = m_initPrm.channelInfo[chId].h;
+			m_bufQue[chId].bufInfo[i].channels = m_initPrm.channelInfo[chId].c;
 		}
 	}
 
@@ -681,24 +683,24 @@ int CRender::gl_updateVertex(void)
 		if(chId < 0 || chId >= DS_CHAN_MAX)
 			continue;
 		rc = m_renders[winId].croprect;
-		if(m_videoSize[chId].w<=0 || m_videoSize[chId].h<=0){
+		if(m_videoInfo[chId].w<=0 || m_videoInfo[chId].h<=0){
 			iRet ++;
 			continue;
 		}
 		if(rc.width == 0 || rc.height == 0){
 			continue;
 		}
-		m_glvTexCoords[winId][0] = (GLfloat)rc.x/m_videoSize[chId].w; 
-		m_glvTexCoords[winId][1] = (GLfloat)rc.y/m_videoSize[chId].h;
+		m_glvTexCoords[winId][0] = (GLfloat)rc.x/m_videoInfo[chId].w;
+		m_glvTexCoords[winId][1] = (GLfloat)rc.y/m_videoInfo[chId].h;
 
-		m_glvTexCoords[winId][2] = (GLfloat)(rc.x+rc.width)/m_videoSize[chId].w;
-		m_glvTexCoords[winId][3] = (GLfloat)rc.y/m_videoSize[chId].h;
+		m_glvTexCoords[winId][2] = (GLfloat)(rc.x+rc.width)/m_videoInfo[chId].w;
+		m_glvTexCoords[winId][3] = (GLfloat)rc.y/m_videoInfo[chId].h;
 
-		m_glvTexCoords[winId][4] = (GLfloat)rc.x/m_videoSize[chId].w;
-		m_glvTexCoords[winId][5] = (GLfloat)(rc.y+rc.height)/m_videoSize[chId].h;
+		m_glvTexCoords[winId][4] = (GLfloat)rc.x/m_videoInfo[chId].w;
+		m_glvTexCoords[winId][5] = (GLfloat)(rc.y+rc.height)/m_videoInfo[chId].h;
 
-		m_glvTexCoords[winId][6] = (GLfloat)(rc.x+rc.width)/m_videoSize[chId].w;
-		m_glvTexCoords[winId][7] = (GLfloat)(rc.y+rc.height)/m_videoSize[chId].h;
+		m_glvTexCoords[winId][6] = (GLfloat)(rc.x+rc.width)/m_videoInfo[chId].w;
+		m_glvTexCoords[winId][7] = (GLfloat)(rc.y+rc.height)/m_videoInfo[chId].h;
 	}
 
 	return iRet;
@@ -713,9 +715,9 @@ void CRender::gl_updateTexVideo()
 		bool bDevMem = false;
 		OSA_BufInfo* info = NULL;
 		Mat img;
-		int count = OSA_bufGetFullCount(&m_bufQue[chId]);
 		nCnt[chId] ++;
 		if(nCnt[chId] > 300){
+			int count = OSA_bufGetFullCount(&m_bufQue[chId]);
 			nCnt[chId] = 0;
 			if(count>1){
 				OSA_printf("[%d]%s: ch%d queue count = %d, sync!!!\n",
@@ -789,9 +791,9 @@ void CRender::gl_updateTexVideo()
 					glTexImage2D(GL_TEXTURE_2D, 0, img.channels(), img.cols, img.rows, 0, GL_BGR_EXT, GL_UNSIGNED_BYTE, NULL);
 				else if(img.channels() == 4)
 					glTexImage2D(GL_TEXTURE_2D, 0, img.channels(), img.cols, img.rows, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE, NULL);
-				m_videoSize[chId].w = img.cols;
-				m_videoSize[chId].h = img.rows;
-				m_videoSize[chId].c = img.channels();
+				m_videoInfo[chId].w = img.cols;
+				m_videoInfo[chId].h = img.rows;
+				m_videoInfo[chId].c = img.channels();
 				bCreate[chId] = true;
 			}
 			else
@@ -954,6 +956,7 @@ void CRender::gl_display(void)
 		tend = tstart;
 
 	//if(m_initPrm.renderfunc == NULL)
+	if(1)
 	{
 		double wms = m_interval*0.000001 - m_telapse;
 		if(m_waitSync && wms>2.0){
@@ -1019,7 +1022,7 @@ void CRender::gl_display(void)
 				mTrans = m_glmat44fBlend[chId*DS_CHAN_MAX+blend_chId]*m_glmat44fTrans[chId]*m_renders[winId].transform;
 				int maskId = m_maskMap[blend_chId];
 				if(maskId < 0 || maskId >= DS_CHAN_MAX){
-					if(m_videoSize[blend_chId].c == 1){
+					if(m_videoInfo[blend_chId].c == 1){
 						glProg = m_glProgram[2];
 					}else{
 						glProg = m_glProgram[3];
@@ -1088,7 +1091,7 @@ void CRender::gl_display(void)
 	int64 tcur = tStamp[5];
 	m_telapse = (tStamp[5] - tStamp[1])*0.000001f + 3.5;
 
-#ifdef __UI_EGL
+#ifdef __EGL__
 	eglSwapBuffers(egl_display, egl_surface);
 #else
 	glutSwapBuffers();
@@ -1119,7 +1122,7 @@ void CRender::gl_display(void)
 	//	OSA_printf("%s %d: null", __func__, __LINE__);
 	//}
 	m_tmRender = tend;
-#ifndef __UI_EGL
+#ifndef __EGL__
 	glutPostRedisplay();
 #endif
 }
