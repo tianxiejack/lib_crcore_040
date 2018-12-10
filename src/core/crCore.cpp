@@ -71,6 +71,7 @@ static char fileNameFontRender[256];
 static int fontSizeVideo[CORE_CHN_MAX];
 static int fontSizeRender = 45;
 static int renderFPS = 30;
+static int curTransLevel = 1;
 
 static int defaultEncParamTab0[CORE_CHN_MAX*3][8] = {
 	//bitrate; minQP; maxQP;minQI;maxQI;minQB;maxQB;
@@ -231,6 +232,7 @@ static void localInit(int nChannels, bool bEncoder)
 	sprintf(fileNameFontRender, "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf");
 	fontSizeRender = 45;
 	renderFPS = 30;
+	curTransLevel = 1;
 	nValidChannels = nChannels;
 	ReadCfgFile_OSD(nChannels);
 	OSA_assert(nChannels>0 && nChannels<=CORE_CHN_MAX);
@@ -261,6 +263,7 @@ static int setEncTransLevel(int iLevel)
 
 		enctran->dynamic_config(CEncTrans::CFG_EncPrm, chId, &encPrm);
 	}
+	curTransLevel = iLevel;
 
 	return iret;
 }
@@ -475,10 +478,26 @@ static int enableOSD(bool enable)
 
 static int enableEncoder(int chId, bool enable)
 {
+	int ret = OSA_SOK;
 	if(enctran == NULL)
 		return OSA_SOK;
 	enableEncoderFlag[chId] = enable;
-	return enctran->dynamic_config(CEncTrans::CFG_Enable, chId, &enable);
+	ret = enctran->dynamic_config(CEncTrans::CFG_Enable, chId, &enable);
+
+	for(int chId=0; chId<nValidChannels; chId++){
+		ENCTRAN_encPrm encPrm;
+		int* params = getEncParamTab(chId, curTransLevel);
+		encPrm.bitrate = params[0];
+		encPrm.minQP = params[1];
+		encPrm.maxQP = params[2];
+		encPrm.minQI = params[3];
+		encPrm.maxQI = params[4];
+		encPrm.minQB = params[5];
+		encPrm.maxQB = params[6];
+
+		ret |= enctran->dynamic_config(CEncTrans::CFG_EncPrm, chId, &encPrm);
+	}
+	return ret;
 }
 
 static int setAxisPos(cv::Point pos)
@@ -775,7 +794,7 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 
 	if(bEncoder)
 	{
-		int iLevel = 1;
+		int iLevel = curTransLevel;
 		ENCTRAN_InitPrm enctranInit;
 		memset(&enctranInit, 0, sizeof(enctranInit));
 		enctranInit.iTransLevel = iLevel;
