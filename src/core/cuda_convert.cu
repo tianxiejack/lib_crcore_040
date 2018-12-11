@@ -1739,6 +1739,7 @@ __inline__ void elapsedTimeCals(int chId, const char *func)
 	if(gObjs[chId].count == 30*10){
 		printf("\n[%d]%s: ch%d Time taken %3.1f(%3.1f, %3.1f, %3.1f) ms", OSA_getCurTimeInMsec(), func, chId,
 				elapsedTime, gObjs[chId].elapsedTimeMax, gObjs[chId].elapsedTimeMin, gObjs[chId].elapsedTimeSum/gObjs[chId].count);
+		fflush(stdout);
 		gObjs[chId].elapsedTimeMax = 0.0f; gObjs[chId].elapsedTimeMin = 1000.0f; gObjs[chId].elapsedTimeSum = 0.0f;
 		gObjs[chId].count = 0;
 	}

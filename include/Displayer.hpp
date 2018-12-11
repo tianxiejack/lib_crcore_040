@@ -57,6 +57,7 @@ typedef struct _ds_init_param{
 	int winWidth;
 	int winHeight;
 	int disFPS;
+	float disSched;
 	bool bScript;
 	char szScriptFile[256];
 	DS_ChnInfo channelInfo[DS_CHAN_MAX];
@@ -83,6 +84,7 @@ public:
 	static void destroyObject(CRender* obj);
 	int create(DS_InitPrm *pPrm);
 	int destroy();
+	int setFPS(float fps);
 
 	typedef enum{
 		DS_CFG_ChId = 0,
@@ -161,6 +163,15 @@ private:
 	int64   m_tmRender;
 	bool m_waitSync;
 
+	pthread_mutex_t render_lock;    /**< Used for synchronization. */
+	pthread_cond_t render_cond;     /**< Used for synchronization. */
+    uint64_t render_time_sec;       /**< Seconds component of the time for which a
+                                         frame should be displayed. */
+    uint64_t render_time_nsec;      /**< Nanoseconds component of the time for which
+                                         a frame should be displayed. */
+    struct timespec last_render_time;   /**< Rendering time for the last buffer. */
+    int m_nSwapTimeOut;
+
 #ifdef __EGL__
 private:
     Display * x_display;    /**< Connection to the X server created using
@@ -177,8 +188,6 @@ private:
     bool stop_thread;   /**< Boolean variable used to signal rendering thread
                              to stop. */
     pthread_t render_thread;        /**< The pthread id of the rendering thread. */
-    pthread_mutex_t render_lock;    /**< Used for synchronization. */
-    pthread_cond_t render_cond;     /**< Used for synchronization. */
 
     //uint32_t texture_id;        /**< Holds the GL Texture ID used for rendering. */
     GC gc;                      /**< Graphic Context */

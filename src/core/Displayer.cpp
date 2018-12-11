@@ -45,7 +45,7 @@ void CRender::destroyObject(CRender* obj)
 CRender::CRender()
 :m_mainWinWidth(0),m_mainWinHeight(0),m_renderCount(0),m_bFullScreen(false),
  m_bUpdateVertex(false), m_tmRender(0ul),m_waitSync(false),
- m_telapse(5.0)
+ m_telapse(5.0), m_nSwapTimeOut(0)
 {
 	tag = TAG_VALUE;
 	gThis = this;
@@ -53,6 +53,7 @@ CRender::CRender()
 	memset(m_bufQue, 0, sizeof(m_bufQue));
 	memset(m_tmBak, 0, sizeof(m_tmBak));
 	memset(m_glProgram, 0, sizeof(m_glProgram));
+	m_initPrm.disSched = 3.5;
 	for(int chId = 0; chId<DS_CHAN_MAX; chId++){
 		m_blendMap[chId] = -1;
 		m_maskMap[chId] = -1;
@@ -131,7 +132,7 @@ int CRender::create(DS_InitPrm *pPrm)
 		m_initPrm.disFPS = 25;
 	if(m_initPrm.nQueueSize < 2)
 		m_initPrm.nQueueSize = 2;
-	m_interval = (1000000000ul)/(uint64)m_initPrm.disFPS;
+	//m_interval = (1000000000ul)/(uint64)m_initPrm.disFPS;
 	//memcpy(m_videoSize, m_initPrm.channelsSize, sizeof(m_videoSize));
 
 	initRender();
@@ -148,6 +149,11 @@ int CRender::create(DS_InitPrm *pPrm)
 		m_glBlendPrm[i].thr1Min = 0;
 		m_glBlendPrm[i].thr1Max = 0;
 	}
+
+    pthread_mutex_init(&render_lock, NULL);
+    pthread_cond_init(&render_cond, NULL);
+
+    setFPS(m_initPrm.disFPS);
 
 #ifdef __EGL__
     int depth;
@@ -317,6 +323,10 @@ int CRender::renderHandle(void)
 
 int CRender::destroy()
 {
+    pthread_mutex_lock(&render_lock);
+    pthread_cond_broadcast(&render_cond);
+    pthread_mutex_unlock(&render_lock);
+
 #ifdef __EGL__
 	{
 		EGLBoolean egl_status;
@@ -375,7 +385,31 @@ int CRender::destroy()
 
 	gl_uninit();
 	OSA_mutexDelete(&m_mutex);
+
+    pthread_mutex_destroy(&render_lock);
+    pthread_cond_destroy(&render_cond);
+
 	return 0;
+}
+
+int CRender::setFPS(float fps)
+{
+    uint64_t render_time_usec;
+
+    if (fps == 0)
+    {
+        OSA_printf("[Render]Fps 0 is not allowed. Not changing fps");
+        return -1;
+    }
+    pthread_mutex_lock(&render_lock);
+    m_initPrm.disFPS = fps;
+    m_interval = (1000000000ul)/(uint64)m_initPrm.disFPS;
+    render_time_usec = 1000000L / fps;
+    render_time_sec = render_time_usec / 1000000;
+    render_time_nsec = (render_time_usec % 1000000) * 1000L;
+    memset(&last_render_time, 0, sizeof(last_render_time));
+    pthread_mutex_unlock(&render_lock);
+    return 0;
 }
 
 int CRender::initRender(bool updateMap)
@@ -720,7 +754,7 @@ void CRender::gl_updateTexVideo()
 			int count = OSA_bufGetFullCount(&m_bufQue[chId]);
 			nCnt[chId] = 0;
 			if(count>1){
-				OSA_printf("[%d]%s: ch%d queue count = %d, sync!!!\n",
+				OSA_printf("[%d]%s: ch%d queue count = %d, sync",
 										OSA_getCurTimeInMsec(), __func__, chId, count);
 				while(count>1){
 					//image_queue_switchEmpty(&m_bufQue[chId]);
@@ -1089,14 +1123,45 @@ void CRender::gl_display(void)
 
 	m_waitSync = true;
 	int64 tcur = tStamp[5];
-	m_telapse = (tStamp[5] - tStamp[1])*0.000001f + 3.5;
+	m_telapse = (tStamp[5] - tStamp[1])*0.000001f + m_initPrm.disSched;
 
+#if 1
+	if (last_render_time.tv_sec != 0)
+	{
+		pthread_mutex_lock(&render_lock);
+		last_render_time.tv_sec += render_time_sec;
+		last_render_time.tv_nsec += render_time_nsec;
+		last_render_time.tv_sec += last_render_time.tv_nsec / 1000000000UL;
+		last_render_time.tv_nsec %= 1000000000UL;
+		pthread_cond_timedwait(&render_cond, &render_lock,
+				&last_render_time);
+		pthread_mutex_unlock(&render_lock);
+	}
+#endif
+
+	int64 tSwap = getTickCount();
 #ifdef __EGL__
 	eglSwapBuffers(egl_display, egl_surface);
 #else
 	glutSwapBuffers();
 #endif
 	tStamp[6] = getTickCount();
+
+#if 1
+	if(tStamp[6]-tSwap>5000000UL)
+		m_nSwapTimeOut++;
+	else
+		m_nSwapTimeOut = 0;
+	if (last_render_time.tv_sec == 0 || m_nSwapTimeOut>3)
+	{
+		struct timeval now;
+		gettimeofday(&now, NULL);
+		last_render_time.tv_sec = now.tv_sec;
+		last_render_time.tv_nsec = now.tv_usec * 1000L;
+		printf("\r\nReset render timer. fps(%d) swp(%ld)", m_initPrm.disFPS, tStamp[6]-tSwap);
+		fflush(stdout);
+	}
+#endif
 	if(m_initPrm.renderfunc != NULL)
 		m_initPrm.renderfunc(RUN_LEAVE, 0, 0);
 	tend = tStamp[6];
@@ -1105,7 +1170,7 @@ void CRender::gl_display(void)
 #if 1
 	static unsigned long rCount = 0;
 	if(rCount%(m_initPrm.disFPS*100) == 0){
-		printf("\r\n[%d] %.4f (ws%.4f,cu%.4f,tv%.4f,to%.4f,rd%.4f,wp%.4f) %.4f",
+		printf("\r\n[%d] %.4f (ws%.4f,cu%.4f,tv%.4f,to%.4f,rd%.4f,wp%.4f) %.4f(%.4f)",
 			OSA_getCurTimeInMsec(),renderIntv,
 			(tStamp[1]-tStamp[0])/getTickFrequency(),
 			(tStamp[2]-tStamp[1])/getTickFrequency(),
@@ -1113,8 +1178,9 @@ void CRender::gl_display(void)
 			(tStamp[4]-tStamp[3])/getTickFrequency(),
 			(tStamp[5]-tStamp[4])/getTickFrequency(),
 			(tStamp[6]-tStamp[5])/getTickFrequency(),
-			m_telapse
+			m_telapse, m_initPrm.disSched
 			);
+		fflush(stdout);
 	}
 	rCount ++;
 #endif
