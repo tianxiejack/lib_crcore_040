@@ -840,7 +840,7 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		if(renderFPS<=0)
 			renderFPS = 30;
 		dsInit.disSched = initParam->renderSched;
-		if(dsInit.disSched<=0)
+		if(dsInit.disSched<=0.00001)
 			dsInit.disSched = 3.5;
 		dsInit.bFullScreen = true;
 		dsInit.nChannels = channels;
@@ -867,14 +867,6 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		inputQ = new InputQueue;
 		inputQ->create(channels);
 		glosdInit();
-
-		if(0)
-		{
-			glutInitWindowPosition(1920, 0);
-			glutInitWindowSize(1440, 900);
-			glutCreateWindow("DSSN");
-			glutDisplayFunc(_display);
-		}
 	}
 
 	scene  = new CSceneProcess();
@@ -1073,7 +1065,7 @@ static void renderFrame(int chId, const Mat& img, const struct v4l2_buffer& bufI
 				image_queue_putFull(imgQRender[chId], info);
 			}
 			else{
-				OSA_printf("%s %d: overflow!", __func__, __LINE__);
+				OSA_printf("core %s %d: ch%d overflow!", __func__, __LINE__, chId);
 				image_queue_switchEmpty(imgQRender[chId]);
 			}
 		}
@@ -1217,10 +1209,10 @@ static void glosdInit(void)
 	cr_osd::glShaderManager.InitializeStockShaders();
 	for(int chId=0; chId<nValidChannels; chId++){
 		if(vOSDs[chId] == NULL)
-			vOSDs[chId] = new cr_osd::GLOSD(render->m_mainWinWidth, render->m_mainWinHeight, fontSizeVideo[chId], fileNameFont[chId]);
+			vOSDs[chId] = new cr_osd::GLOSD(render->m_winWidth, render->m_winHeight, fontSizeVideo[chId], fileNameFont[chId]);
 	}
 	if(enctran == NULL){
-		glosdFront = new cr_osd::GLOSD(render->m_mainWinWidth, render->m_mainWinHeight, fontSizeRender, fileNameFontRender);
+		glosdFront = new cr_osd::GLOSD(render->m_winWidth, render->m_winHeight, fontSizeRender, fileNameFontRender);
 		cr_osd::vosdFactorys.push_back(glosdFront);
 	}
 #else

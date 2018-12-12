@@ -43,7 +43,7 @@ void CRender::destroyObject(CRender* obj)
 }
 
 CRender::CRender()
-:m_mainWinWidth(0),m_mainWinHeight(0),m_renderCount(0),m_bFullScreen(false),
+:m_winId(0), m_winWidth(1920),m_winHeight(1080),m_renderCount(0),m_bFullScreen(false),
  m_bUpdateVertex(false), m_tmRender(0ul),m_waitSync(false),
  m_telapse(5.0), m_nSwapTimeOut(0)
 {
@@ -114,8 +114,8 @@ int CRender::create(DS_InitPrm *pPrm)
 	uint32_t screenWidth = 0, screenHeight = 0;
 	if(getDisplayResolution(NULL, screenWidth, screenHeight) == 0)
 	{
-		m_mainWinWidth = screenWidth;
-		m_mainWinHeight = screenHeight;
+		//m_winWidth = screenWidth;
+		//m_winHeight = screenHeight;
 	}
 	OSA_printf("screen resolution: %d x %d", screenWidth, screenHeight);
 
@@ -125,9 +125,9 @@ int CRender::create(DS_InitPrm *pPrm)
 		memcpy(&m_initPrm, pPrm, sizeof(DS_InitPrm));
 
 	if(m_initPrm.winWidth > 0)
-		m_mainWinWidth = m_initPrm.winWidth;
+		m_winWidth = m_initPrm.winWidth;
 	if(m_initPrm.winHeight > 0)
-		m_mainWinHeight = m_initPrm.winHeight;
+		m_winHeight = m_initPrm.winHeight;
 	if(m_initPrm.disFPS<=0)
 		m_initPrm.disFPS = 25;
 	if(m_initPrm.nQueueSize < 2)
@@ -207,21 +207,21 @@ int CRender::create(DS_InitPrm *pPrm)
     OSA_printf("%s %d: glutGet %d x %d", __func__, __LINE__, glut_screen_width, glut_screen_height);
 	//Double, Use glutSwapBuffers() to show
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_MULTISAMPLE);
+    //glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH | GLUT_MULTISAMPLE);
 	//Single, Use glFlush() to show
 	//glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB );
     glutInitWindowPosition(m_initPrm.winPosX, m_initPrm.winPosY);
-    glutInitWindowSize(m_mainWinWidth, m_mainWinHeight);
-    OSA_printf("%s %d: window(%d,%d,%d,%d)",__func__, __LINE__, m_initPrm.winPosX, m_initPrm.winPosY, m_mainWinWidth, m_mainWinHeight);
+    glutInitWindowSize(m_winWidth, m_winHeight);
+    OSA_printf("%s %d: window(%d,%d,%d,%d)",__func__, __LINE__, m_initPrm.winPosX, m_initPrm.winPosY, m_winWidth, m_winHeight);
 
-    int winId = glutCreateWindow("DSS");
-    OSA_assert(winId > 0);
+    glutSetOption(GLUT_RENDERING_CONTEXT,GLUT_USE_CURRENT_CONTEXT);
+    m_winId = glutCreateWindow("DSS1");
+    OSA_assert(m_winId > 0);
+    glutSetWindow(m_winId);
 	if(m_initPrm.bFullScreen){
 		glutFullScreen();
 		m_bFullScreen = true;
 	}
-    //int subId = glutCreateSubWindow( winId, 1930, 0, 1024, 768 );
-    //OSA_assert(subId > 0);
-	glutSetWindow(winId);
 	glutDisplayFunc(_display);
 	glutReshapeFunc(_reshape);
 	if(m_initPrm.keyboardfunc != NULL)
@@ -247,6 +247,41 @@ int CRender::create(DS_InitPrm *pPrm)
 
 	gl_init();
 	OSA_printf("[Render] %s %d: gl_init success", __func__, __LINE__);
+
+
+	if(0)
+	{
+		glutInitWindowPosition(1921,0);
+		glutInitWindowSize(1440, 900);
+	    glutSetOption(GLUT_RENDERING_CONTEXT,GLUT_USE_CURRENT_CONTEXT);
+	    int winId2 = glutCreateWindow("DSS2");
+	    OSA_assert(winId2 > 0);
+	    glutSetWindow(winId2);
+		if(m_initPrm.bFullScreen){
+			glutFullScreen();
+		}
+		//int subWin = glutCreateSubWindow(winId2,0,0,1440,900);
+		//OSA_assert(subWin > 0);
+		//glutSetWindow(subWin);
+		glutDisplayFunc(_display2);
+		if(m_initPrm.keyboardfunc != NULL)
+			glutKeyboardFunc(m_initPrm.keyboardfunc);
+		if(m_initPrm.keySpecialfunc != NULL)
+			glutSpecialFunc(m_initPrm.keySpecialfunc);
+		//mouse event:
+		if(m_initPrm.mousefunc != NULL)
+			glutMouseFunc(m_initPrm.mousefunc);//GLUT_LEFT_BUTTON GLUT_MIDDLE_BUTTON GLUT_RIGHT_BUTTON; GLUT_DOWN GLUT_UP
+
+		GLenum err = glewInit();
+		if (GLEW_OK != err) {
+			fprintf(stderr, "\n[Render] %s %d: Error in glewInit. %s\n", __func__, __LINE__, glewGetErrorString(err));
+			return -1;
+		}
+		OSA_printf("[Render] %s %d: glewInit success", __func__, __LINE__);
+		glClearColor(1.0f, 0.0f, 0.01f, 0.0f );
+		glClear(GL_COLOR_BUFFER_BIT);
+	}
+
 #endif
 
 	return 0;
@@ -394,8 +429,6 @@ int CRender::destroy()
 
 int CRender::setFPS(float fps)
 {
-    uint64_t render_time_usec;
-
     if (fps == 0)
     {
         OSA_printf("[Render]Fps 0 is not allowed. Not changing fps");
@@ -404,9 +437,8 @@ int CRender::setFPS(float fps)
     pthread_mutex_lock(&render_lock);
     m_initPrm.disFPS = fps;
     m_interval = (1000000000ul)/(uint64)m_initPrm.disFPS;
-    render_time_usec = 1000000L / fps;
-    render_time_sec = render_time_usec / 1000000;
-    render_time_nsec = (render_time_usec % 1000000) * 1000L;
+    render_time_sec = m_interval / 1000000000ul;
+    render_time_nsec = (m_interval % 1000000000ul);
     memset(&last_render_time, 0, sizeof(last_render_time));
     pthread_mutex_unlock(&render_lock);
     return 0;
@@ -416,40 +448,42 @@ int CRender::initRender(bool updateMap)
 {
 	int i=0;
 
+	OSA_printf("Render::%s %d: win%d (%d x %d)", __func__, __LINE__, m_winId, m_winWidth, m_winHeight);
+
 	if(updateMap){
 		m_renders[i].video_chId    = 0;
 	}
 	m_renders[i].displayrect.x = 0;
 	m_renders[i].displayrect.y = 0;
-	m_renders[i].displayrect.width = m_mainWinWidth;
-	m_renders[i].displayrect.height = m_mainWinHeight;
+	m_renders[i].displayrect.width = m_winWidth;
+	m_renders[i].displayrect.height = m_winHeight;
 	i++;
 
 	if(updateMap){
 		m_renders[i].video_chId    = -1;
 	}
-	m_renders[i].displayrect.x = m_mainWinWidth*2/3;
-	m_renders[i].displayrect.y = m_mainWinHeight*2/3;
-	m_renders[i].displayrect.width = m_mainWinWidth/3;
-	m_renders[i].displayrect.height = m_mainWinHeight/3;
+	m_renders[i].displayrect.x = m_winWidth*2/3;
+	m_renders[i].displayrect.y = m_winHeight*2/3;
+	m_renders[i].displayrect.width = m_winWidth/3;
+	m_renders[i].displayrect.height = m_winHeight/3;
 	i++;
 
 	if(updateMap){
 		m_renders[i].video_chId    = -1;
 	}
-	m_renders[i].displayrect.x = m_mainWinWidth*2/3;
-	m_renders[i].displayrect.y = m_mainWinHeight*2/3;
-	m_renders[i].displayrect.width = m_mainWinWidth/3;
-	m_renders[i].displayrect.height = m_mainWinHeight/3;
+	m_renders[i].displayrect.x = m_winWidth*2/3;
+	m_renders[i].displayrect.y = m_winHeight*2/3;
+	m_renders[i].displayrect.width = m_winWidth/3;
+	m_renders[i].displayrect.height = m_winHeight/3;
 	i++;
 
 	if(updateMap){
 		m_renders[i].video_chId    = -1;
 	}
-	m_renders[i].displayrect.x = m_mainWinWidth*2/3;
-	m_renders[i].displayrect.y = m_mainWinHeight*2/3;
-	m_renders[i].displayrect.width = m_mainWinWidth/3;
-	m_renders[i].displayrect.height = m_mainWinHeight/3;
+	m_renders[i].displayrect.x = m_winWidth*2/3;
+	m_renders[i].displayrect.y = m_winHeight*2/3;
+	m_renders[i].displayrect.width = m_winWidth/3;
+	m_renders[i].displayrect.height = m_winHeight/3;
 	i++;
 
 	m_renderCount = i;
@@ -468,11 +502,18 @@ void CRender::_display(void)
 	gThis->gl_display();
 }
 
+void CRender::_display2(void)
+{
+	OSA_assert(gThis->tag == TAG_VALUE);
+	//OSA_printf("%s %d: winId = %d", __func__, __LINE__, glutGetWindow());
+	gThis->gl_display2();
+}
+
 void CRender::_reshape(int width, int height)
 {
 	assert(gThis != NULL);
-	gThis->m_mainWinWidth = width;
-	gThis->m_mainWinHeight = height;
+	gThis->m_winWidth = width;
+	gThis->m_winHeight = height;
 	gThis->initRender(false);
 	gThis->gl_updateVertex();
 }
@@ -752,7 +793,7 @@ void CRender::gl_updateTexVideo()
 		nCnt[chId] ++;
 		if(nCnt[chId] > 300){
 			int count = OSA_bufGetFullCount(&m_bufQue[chId]);
-			nCnt[chId] = 0;
+			nCnt[chId] = 1;
 			if(count>1){
 				OSA_printf("[%d]%s: ch%d queue count = %d, sync",
 										OSA_getCurTimeInMsec(), __func__, chId, count);
@@ -765,6 +806,10 @@ void CRender::gl_updateTexVideo()
 				}
 			}
 		}
+
+		int nDrop = m_initPrm.disFPS/m_initPrm.channelInfo[chId].fps;
+		if(nDrop>1 && (nCnt[chId]%nDrop)!=1)
+			continue;
 
 		info = image_queue_getFull(&m_bufQue[chId]);
 		if(info != NULL)
@@ -993,6 +1038,9 @@ void CRender::gl_display(void)
 	if(1)
 	{
 		double wms = m_interval*0.000001 - m_telapse;
+		double wmsl = (m_tmRender == 0ul) ? 0.f : ((tStamp[0] - m_tmRender)*0.000001f);
+		wms -= wmsl;
+		//OSA_printf("%f %f", wms, wmsl);
 		if(m_waitSync && wms>2.0){
 			struct timeval timeout;
 			timeout.tv_sec = 0;
@@ -1118,6 +1166,7 @@ void CRender::gl_display(void)
 
 	if(m_initPrm.renderfunc != NULL)
 		m_initPrm.renderfunc(RUN_SWAP, 0, 0);
+	//glFinish();
 
 	tStamp[5] = getTickCount();
 
@@ -1191,6 +1240,118 @@ void CRender::gl_display(void)
 #ifndef __EGL__
 	glutPostRedisplay();
 #endif
+}
+
+void CRender::gl_display2(void)
+{
+	int winId, chId;
+	GLint glProg = 0;
+	int iret;
+	glClear(GL_COLOR_BUFFER_BIT);
+	if(m_initPrm.renderfunc != NULL)
+		m_initPrm.renderfunc(RUN_ENTER, 0, 0);
+	if(1)
+	{
+		//OSA_mutexLock(&m_mutex);
+		for(winId=0; winId<m_renderCount; winId++)
+		{
+			chId = m_curMap[winId];
+			if(m_curMap[winId]!= m_renders[winId].video_chId){
+				m_curMap[winId] = m_renders[winId].video_chId;
+			}
+			if(chId < 0 || chId >= DS_CHAN_MAX)
+				continue;
+
+			glUseProgram(m_glProgram[1]);
+			GLint Uniform_tex_in = glGetUniformLocation(m_glProgram[1], "tex_in");
+			GLint Uniform_mvp = glGetUniformLocation(m_glProgram[1], "mvpMatrix");
+			GLMatx44f mTrans = m_glmat44fTrans[chId]*m_renders[winId].transform;
+			glUniformMatrix4fv(Uniform_mvp, 1, GL_FALSE, mTrans.val);
+			glUniform1i(Uniform_tex_in, 0);
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, textureId_input[chId]);
+			glVertexAttribPointer(ATTRIB_VERTEX, 2, GL_FLOAT, GL_FALSE, 0, m_glvVerts[winId]);
+			glVertexAttribPointer(ATTRIB_TEXTURE, 2, GL_FLOAT, GL_FALSE, 0, m_glvTexCoords[winId]);
+			glEnableVertexAttribArray(ATTRIB_VERTEX);
+			glEnableVertexAttribArray(ATTRIB_TEXTURE);
+			//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glViewport(m_renders[winId].displayrect.x,
+					m_renders[winId].displayrect.y,
+					m_renders[winId].displayrect.width, m_renders[winId].displayrect.height);
+			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+			glUseProgram(0);
+
+			int blend_chId = m_blendMap[chId];
+			if(blend_chId>=0 && blend_chId<DS_CHAN_MAX){
+				mTrans = m_glmat44fBlend[chId*DS_CHAN_MAX+blend_chId]*m_glmat44fTrans[chId]*m_renders[winId].transform;
+				int maskId = m_maskMap[blend_chId];
+				if(maskId < 0 || maskId >= DS_CHAN_MAX){
+					if(m_videoInfo[blend_chId].c == 1){
+						glProg = m_glProgram[2];
+					}else{
+						glProg = m_glProgram[3];
+					}
+					glUseProgram(glProg);
+					GLint Uniform_tex_in = glGetUniformLocation(glProg, "tex_in");
+					GLint uniform_fAlpha = glGetUniformLocation(glProg, "fAlpha");
+					GLint uniform_thr0Min = glGetUniformLocation(glProg, "thr0Min");
+					GLint uniform_thr0Max = glGetUniformLocation(glProg, "thr0Max");
+					GLint uniform_thr1Min = glGetUniformLocation(glProg, "thr1Min");
+					GLint uniform_thr1Max = glGetUniformLocation(glProg, "thr1Max");
+					GLint Uniform_mvp = glGetUniformLocation(glProg, "mvpMatrix");
+					glUniformMatrix4fv(Uniform_mvp, 1, GL_FALSE, mTrans.val);
+					glUniform1f(uniform_fAlpha, m_glBlendPrm[chId*DS_CHAN_MAX+blend_chId].fAlpha);
+					glUniform1f(uniform_thr0Min, m_glBlendPrm[chId*DS_CHAN_MAX+blend_chId].thr0Min);
+					glUniform1f(uniform_thr0Max, m_glBlendPrm[chId*DS_CHAN_MAX+blend_chId].thr0Max);
+					glUniform1f(uniform_thr1Min, m_glBlendPrm[chId*DS_CHAN_MAX+blend_chId].thr1Min);
+					glUniform1f(uniform_thr1Max, m_glBlendPrm[chId*DS_CHAN_MAX+blend_chId].thr1Max);
+					glUniform1i(Uniform_tex_in, 0);
+					glActiveTexture(GL_TEXTURE0);
+					glBindTexture(GL_TEXTURE_2D, textureId_input[blend_chId]);
+				}else{
+					glUseProgram(m_glProgram[4]);
+					GLint Uniform_tex_in = glGetUniformLocation(m_glProgram[4], "tex_in");
+					GLint Uniform_tex_mask = glGetUniformLocation(m_glProgram[4], "tex_mask");
+					GLint Uniform_mvp = glGetUniformLocation(m_glProgram[4], "mvpMatrix");
+					glUniformMatrix4fv(Uniform_mvp, 1, GL_FALSE, mTrans.val);
+					glUniform1i(Uniform_tex_in, 0);
+					glActiveTexture(GL_TEXTURE0);
+					glBindTexture(GL_TEXTURE_2D, textureId_input[blend_chId]);
+					glUniform1i(Uniform_tex_mask, 1);
+					glActiveTexture(GL_TEXTURE1);
+					glBindTexture(GL_TEXTURE_2D, textureId_input[maskId]);
+				}
+				glVertexAttribPointer(ATTRIB_VERTEX, 2, GL_FLOAT, GL_FALSE, 0, m_glvVerts[winId]);
+				glVertexAttribPointer(ATTRIB_TEXTURE, 2, GL_FLOAT, GL_FALSE, 0, m_glvTexCoords[winId]);
+				glEnableVertexAttribArray(ATTRIB_VERTEX);
+				glEnableVertexAttribArray(ATTRIB_TEXTURE);
+				glEnable(GL_MULTISAMPLE);
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				//glViewport(m_renders[winId].displayrect.x,
+				//		m_renders[winId].displayrect.y,
+				//		m_renders[winId].displayrect.width, m_renders[winId].displayrect.height);
+				glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+				glDisable(GL_MULTISAMPLE);
+				glDisable(GL_BLEND);
+				glUseProgram(0);
+			}
+			if(m_initPrm.renderfunc != NULL)
+				m_initPrm.renderfunc(RUN_WIN, winId, chId);
+		}
+		//OSA_mutexUnlock(&m_mutex);
+	}
+
+	if(m_initPrm.renderfunc != NULL)
+		m_initPrm.renderfunc(RUN_SWAP, 0, 0);
+#ifdef __EGL__
+	eglSwapBuffers(egl_display, egl_surface);
+#else
+	glutSwapBuffers();
+	glutPostRedisplay();
+#endif
+	if(m_initPrm.renderfunc != NULL)
+		m_initPrm.renderfunc(RUN_LEAVE, 0, 0);
 }
 
 //////////////////////////////////////////////////////
