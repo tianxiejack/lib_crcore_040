@@ -1054,7 +1054,7 @@ void CRender::gl_display(void)
 	tStamp[1] = getTickCount();
 
 	if(m_initPrm.renderfunc != NULL)
-		m_initPrm.renderfunc(RUN_ENTER, 0, 0);
+		m_initPrm.renderfunc(0, RUN_ENTER, 0, 0);
 	tStamp[2] = getTickCount();
 
 	gl_updateTexVideo();
@@ -1156,7 +1156,7 @@ void CRender::gl_display(void)
 			}
 
 			if(m_initPrm.renderfunc != NULL)
-				m_initPrm.renderfunc(RUN_WIN, winId, chId);
+				m_initPrm.renderfunc(0, RUN_WIN, winId, chId);
 		}
 		OSA_mutexUnlock(&m_mutex);
 	}
@@ -1165,7 +1165,7 @@ void CRender::gl_display(void)
 	UpdateOSD();
 
 	if(m_initPrm.renderfunc != NULL)
-		m_initPrm.renderfunc(RUN_SWAP, 0, 0);
+		m_initPrm.renderfunc(0, RUN_SWAP, 0, 0);
 	//glFinish();
 
 	tStamp[5] = getTickCount();
@@ -1212,7 +1212,7 @@ void CRender::gl_display(void)
 	}
 #endif
 	if(m_initPrm.renderfunc != NULL)
-		m_initPrm.renderfunc(RUN_LEAVE, 0, 0);
+		m_initPrm.renderfunc(0, RUN_LEAVE, 0, 0);
 	tend = tStamp[6];
 	float renderIntv = (tend - m_tmRender)/getTickFrequency();
 
@@ -1249,7 +1249,7 @@ void CRender::gl_display2(void)
 	int iret;
 	glClear(GL_COLOR_BUFFER_BIT);
 	if(m_initPrm.renderfunc != NULL)
-		m_initPrm.renderfunc(RUN_ENTER, 0, 0);
+		m_initPrm.renderfunc(1, RUN_ENTER, 0, 0);
 	if(1)
 	{
 		//OSA_mutexLock(&m_mutex);
@@ -1337,13 +1337,13 @@ void CRender::gl_display2(void)
 				glUseProgram(0);
 			}
 			if(m_initPrm.renderfunc != NULL)
-				m_initPrm.renderfunc(RUN_WIN, winId, chId);
+				m_initPrm.renderfunc(1, RUN_WIN, winId, chId);
 		}
 		//OSA_mutexUnlock(&m_mutex);
 	}
 
 	if(m_initPrm.renderfunc != NULL)
-		m_initPrm.renderfunc(RUN_SWAP, 0, 0);
+		m_initPrm.renderfunc(1, RUN_SWAP, 0, 0);
 #ifdef __EGL__
 	eglSwapBuffers(egl_display, egl_surface);
 #else
@@ -1351,7 +1351,7 @@ void CRender::gl_display2(void)
 	glutPostRedisplay();
 #endif
 	if(m_initPrm.renderfunc != NULL)
-		m_initPrm.renderfunc(RUN_LEAVE, 0, 0);
+		m_initPrm.renderfunc(1, RUN_LEAVE, 0, 0);
 }
 
 //////////////////////////////////////////////////////

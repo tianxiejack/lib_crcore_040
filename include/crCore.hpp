@@ -10,11 +10,14 @@
 
 /***********************************************
  * core version 1.0.4
+ *
+ * 20/12/2018 motify: CORE1001_INIT_PARAM::renderHook
+ *	enum{	 RUN_ENTER = 0,RUN_WIN,	RUN_SWAP,	RUN_LEAVE };
  */
 #include "osa.h"
 #include "osa_sem.h"
 
-#define CORE_1001_VERSION_  "1.0.5"
+#define CORE_1001_VERSION_  "1.0.6"
 #define COREID_1001			(0x10010000)
 #define COREID_1001_040		(CORNID_1001 + 1)
 
@@ -70,6 +73,7 @@ typedef struct _core_1001_init{
 	CORE1001_CHN_INIT_PARAM chnInfo[CORE_CHN_MAX];
 	int nChannels;
 	OSA_SemHndl *notify;
+	void (*renderHook)(int displayId, int stepIdx, int stepSub, int context);
 	bool bEncoder;
 	bool bRender;
 	bool bHideOSD;
@@ -80,6 +84,7 @@ typedef struct _core_1001_init{
 	int *encoderParamTab[3];
 	int *encoderParamTabMulti[CORE_CHN_MAX][3];
 }CORE1001_INIT_PARAM;
+enum{	 RENDER_HOOK_RUN_ENTER = 0, RENDER_HOOK_RUN_WIN,	RENDER_HOOK_RUN_SWAP,	RENDER_HOOK_RUN_LEAVE };
 typedef cv::Rect_<float> Rect2f;
 class ICore_1001 : public ICore
 {

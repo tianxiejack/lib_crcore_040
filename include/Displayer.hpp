@@ -71,7 +71,7 @@ typedef struct _ds_init_param{
 	void (*keySpecialfunc)( int, int, int );
 	void (*visibilityfunc)(int state);
 	void (*closefunc)(void);
-	void (*renderfunc)(int stepIdx, int stepSub, int context);
+	void (*renderfunc)(int displayId, int stepIdx, int stepSub, int context);
 }DS_InitPrm;
 
 class CRender

@@ -72,6 +72,7 @@ static int fontSizeVideo[CORE_CHN_MAX];
 static int fontSizeRender = 45;
 static int renderFPS = 30;
 static int curTransLevel = 1;
+static void (*renderHook)(int displayId, int stepIdx, int stepSub, int context) = NULL;
 
 static int defaultEncParamTab0[CORE_CHN_MAX*3][8] = {
 	//bitrate; minQP; maxQP;minQI;maxQI;minQB;maxQB;
@@ -186,6 +187,7 @@ static void localInit(int nChannels, bool bEncoder)
 	memset(curFovIdFlag, 0, sizeof(curFovIdFlag));
 	enableTrackFlag = false;
 	enableMMTDFlag = false;
+	renderHook = NULL;
 	memset(enableEnhFlag, 0, sizeof(enableEnhFlag));
 	memset(bindBlendFlag, 0, sizeof(bindBlendFlag));
 	memset(userEncParamTab0, 0, sizeof(userEncParamTab0));
@@ -724,7 +726,7 @@ static unsigned char *memsI420[CORE_CHN_MAX] = {NULL,};
 static cv::Mat imgOsd[CORE_CHN_MAX];
 static OSA_MutexHndl *cumutex = NULL;
 static void glosdInit(void);
-static void renderCall(int stepIdx, int stepSub, int context);
+static void renderCall(int displayId, int stepIdx, int stepSub, int context);
 
 static void _display(void)
 {
@@ -744,6 +746,7 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 	bool bRender = initParam->bRender;
 	bool bHideOSD = initParam->bHideOSD;
 	localInit(channels, bEncoder);
+	renderHook = initParam->renderHook;
 	if(initParam->encoderParamTab[0]!=NULL){
 		for(chId=0; chId<channels; chId++){
 			userEncParamTab0[chId][0] = initParam->encoderParamTab[0];
@@ -845,7 +848,7 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		dsInit.bFullScreen = true;
 		dsInit.nChannels = channels;
 		dsInit.memType = memtype_glpbo;//memtype_glpbo;//memtype_cuhost;//memtype_cudev;
-		dsInit.nQueueSize = 2;
+		dsInit.nQueueSize = 6;
 		dsInit.disFPS = initParam->renderFPS;
 		dsInit.renderfunc = renderCall;
 		dsInit.winWidth = initParam->renderSize.width;
@@ -865,7 +868,7 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 			imgQRender[chId] = &render->m_bufQue[chId];
 		}
 		inputQ = new InputQueue;
-		inputQ->create(channels);
+		inputQ->create(channels, 4);
 		glosdInit();
 	}
 
@@ -1228,7 +1231,7 @@ static void glosdInit(void)
 #endif
 }
 
-static void renderCall(int stepIdx, int stepSub, int context)
+static void renderCall(int displayId, int stepIdx, int stepSub, int context)
 {
 	if(enctran == NULL)
 	{
@@ -1301,7 +1304,10 @@ static void renderCall(int stepIdx, int stepSub, int context)
 		}
 	#endif
 	}
-}
+
+	if(renderHook != NULL)
+		renderHook(displayId, stepIdx, stepSub, context);
+}//void renderCall(int displayId, int stepIdx, int stepSub, int context)
 
 };//namespace cr_local
 
