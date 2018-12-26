@@ -55,6 +55,7 @@ static bool enableEnhFlag[CORE_CHN_MAX];
 static bool enableBlobFlag = false;
 static int bindBlendFlag[CORE_CHN_MAX];
 static int bindBlendTFlag[CORE_CHN_MAX];
+static cv::Matx44f blendMatric[CORE_CHN_MAX];
 static bool enableEncoderFlag[CORE_CHN_MAX];
 static bool enableOSDFlag = true;
 static int ezoomxFlag[CORE_CHN_MAX];
@@ -73,6 +74,8 @@ static int fontSizeRender = 45;
 static int renderFPS = 30;
 static int curTransLevel = 1;
 static void (*renderHook)(int displayId, int stepIdx, int stepSub, int context) = NULL;
+static cv::Rect subRc;
+static cv::Matx44f subMatric;
 
 static int defaultEncParamTab0[CORE_CHN_MAX*3][8] = {
 	//bitrate; minQP; maxQP;minQI;maxQI;minQB;maxQB;
@@ -198,6 +201,7 @@ static void localInit(int nChannels, bool bEncoder)
 		ezoomxFlag[i] = 1;
 		scaleFlag[i] = 1.0f;
 		bindBlendTFlag[i] = -1;
+		blendMatric[i] = cv::Matx44f::eye();
 		channelsFPS[i] = 30;
 		userEncParamTab0[i][0] = defaultEncParamTab0[i*3+0];
 		userEncParamTab0[i][1] = defaultEncParamTab0[i*3+1];
@@ -437,6 +441,7 @@ static int bindBlend(int chId, int blendchId, cv::Matx44f matric)
 			bindBlendFlag[curBlendchId] &= ~(1<<chId);
 		bindBlendTFlag[chId] = -1;
 	}
+	blendMatric[chId] = matric;
 	if(render!= NULL){
 		if(blendchId>=0 && blendchId < CORE_CHN_MAX){
 			ret = render->dynamic_config(CRender::DS_CFG_BlendTransMat, chId*DS_CHAN_MAX+blendchId, matric.val);
@@ -459,6 +464,10 @@ static int setWinPos(int winId, cv::Rect rc)
 	int ret = OSA_SOK;
 	if(render!= NULL){
 		ret = render->dynamic_config(CRender::DS_CFG_ViewPos, winId, &rc);
+		if(winId == 1){
+			subRc = render->m_renders[1].displayrect;
+			subMatric = render->m_renders[1].transform;
+		}
 	}
 	return ret;
 }
@@ -468,6 +477,10 @@ static int setWinMatric(int winId, cv::Matx44f matric)
 	int ret = OSA_SOK;
 	if(render!= NULL){
 		ret = render->dynamic_config(CRender::DS_CFG_ViewTransMat, winId, matric.val);
+		if(winId == 1){
+			subRc = render->m_renders[1].displayrect;
+			subMatric = render->m_renders[1].transform;
+		}
 	}
 	return ret;
 }
@@ -728,13 +741,6 @@ static OSA_MutexHndl *cumutex = NULL;
 static void glosdInit(void);
 static void renderCall(int displayId, int stepIdx, int stepSub, int context);
 
-static void _display(void)
-{
-	glClear(GL_COLOR_BUFFER_BIT);
-	glClearColor(1.0, 0.0, 0.0, 1.0);
-	glutSwapBuffers();
-}
-
 static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 {
 	int ret = OSA_SOK;
@@ -848,7 +854,7 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		dsInit.bFullScreen = true;
 		dsInit.nChannels = channels;
 		dsInit.memType = memtype_glpbo;//memtype_glpbo;//memtype_cuhost;//memtype_cudev;
-		dsInit.nQueueSize = 6;
+		dsInit.nQueueSize = 4;
 		dsInit.disFPS = initParam->renderFPS;
 		dsInit.renderfunc = renderCall;
 		dsInit.winWidth = initParam->renderSize.width;
@@ -870,6 +876,9 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		inputQ = new InputQueue;
 		inputQ->create(channels, 4);
 		glosdInit();
+
+		subRc = render->m_renders[1].displayrect;
+		subMatric = render->m_renders[1].transform;
 	}
 
 	scene  = new CSceneProcess();
@@ -1167,7 +1176,7 @@ static void processFrame(int cap_chid, unsigned char *src, const struct v4l2_buf
 	}
 	else if(imgQRender[cap_chid] != NULL)
 	{
-		if(!isEqual(ezoomxFlag[cap_chid]*1.0, scaleFlag[cap_chid])){
+		/*if(!isEqual(ezoomxFlag[cap_chid]*1.0, scaleFlag[cap_chid])){
 			scaleFlag[cap_chid] = ezoomxFlag[cap_chid]*1.0;
 			GLfloat fscale = scaleFlag[cap_chid];
 			GLfloat mat4[16] ={
@@ -1177,6 +1186,17 @@ static void processFrame(int cap_chid, unsigned char *src, const struct v4l2_buf
 				0.0f, 0.0f, 0.0f, 1.0f
 			};
 			render->dynamic_config(CRender::DS_CFG_VideoTransMat, cap_chid, mat4);
+		}*/
+		if(curChannelFlag == cap_chid && !isEqual(ezoomxFlag[cap_chid]*1.0, scaleFlag[0])){
+			scaleFlag[0] = ezoomxFlag[cap_chid]*1.0;
+			GLfloat fscale = scaleFlag[0];
+			GLfloat mat4[16] ={
+				fscale, 0.0f, 0.0f, 0.0f,
+				0.0f, fscale, 0.0f, 0.0f,
+				0.0f, 0.0f, 1.0f, 0.0f,
+				0.0f, 0.0f, 0.0f, 1.0f
+			};
+			render->dynamic_config(CRender::DS_CFG_ViewTransMat, 0, mat4);
 		}
 		//render->m_bOsd = enableOSDFlag;
 		renderFrame(cap_chid, img, capInfo, format);
@@ -1546,11 +1566,14 @@ void Core_1001::update()
 {
 	//OSA_printf("%s %d: enter.", __func__, __LINE__);
 	m_stats.mainChId = cr_local::curChannelFlag;
+	m_stats.subChId = cr_local::curSubChannelIdFlag;
 	m_stats.acqWinSize.width = cr_local::general->m_sizeAcqWin.width;
 	m_stats.acqWinSize.height = cr_local::general->m_sizeAcqWin.height;
 	m_stats.enableTrack = cr_local::enableTrackFlag;
 	m_stats.enableMMTD = cr_local::enableMMTDFlag;
 	m_stats.enableMotionDetect = cr_local::enableMotionDetectFlag;
+	m_stats.enableBlob = cr_local::enableBlobFlag;
+	m_stats.enableOSD = cr_local::enableOSDFlag;
 	m_stats.iTrackorStat = cr_local::general->m_iTrackStat;
 	UTC_RECT_float curRC = cr_local::general->m_rcTrk;
 	m_stats.trackPos.x = curRC.x+curRC.width/2;
@@ -1559,6 +1582,10 @@ void Core_1001::update()
 	m_stats.trackWinSize.height = curRC.height;
 	m_stats.lossCoastFrames = cr_local::general->m_iTrackLostCnt;
 	m_stats.lossCoastTelapse = cr_local::general->m_telapseLost;
+	m_stats.subRc = cr_local::subRc;
+	m_stats.subMatric = cr_local::subMatric;
+	m_stats.colorYUV = cr_local::colorYUVFlag;
+	m_stats.transLevel = cr_local::curTransLevel;
 	if(cr_local::mmtd->m_bEnable){
 		int cnt = min(MAX_TGT_NUM, CORE_TGT_NUM_MAX);
 		for(int i=0; i<cnt; i++)
@@ -1595,6 +1622,8 @@ void Core_1001::update()
 		chn->iEZoomx = cr_local::ezoomxFlag[chId];
 		chn->enableEncoder = cr_local::enableEncoderFlag[chId];//enctran->m_enable[chId];
 		chn->frameTimestamp = cr_local::general->m_frameTimestamp[chId];
+		chn->blendBindId = cr_local::bindBlendTFlag[chId];
+		chn->blendMatric = cr_local::blendMatric[chId];
 	}
 }
 

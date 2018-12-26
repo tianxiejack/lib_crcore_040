@@ -3,6 +3,10 @@
 ################################################################################
 
 # Add inputs and outputs from these tool invocations to the build variables 
+CU_SRCS += \
+../src/core/cuda.cu \
+../src/core/cuda_convert.cu 
+
 CPP_SRCS += \
 ../src/core/BlobDetector.cpp \
 ../src/core/Displayer.cpp \
@@ -17,14 +21,6 @@ CPP_SRCS += \
 ../src/core/motionDetectProcess.cpp \
 ../src/core/thread.cpp \
 ../src/core/trackerProcess.cpp 
-
-CU_SRCS += \
-../src/core/cuda.cu \
-../src/core/cuda_convert.cu 
-
-CU_DEPS += \
-./src/core/cuda.d \
-./src/core/cuda_convert.d 
 
 OBJS += \
 ./src/core/BlobDetector.o \
@@ -42,6 +38,10 @@ OBJS += \
 ./src/core/motionDetectProcess.o \
 ./src/core/thread.o \
 ./src/core/trackerProcess.o 
+
+CU_DEPS += \
+./src/core/cuda.d \
+./src/core/cuda_convert.d 
 
 CPP_DEPS += \
 ./src/core/BlobDetector.d \

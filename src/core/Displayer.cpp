@@ -44,7 +44,7 @@ void CRender::destroyObject(CRender* obj)
 
 CRender::CRender()
 :m_winId(0), m_winWidth(1920),m_winHeight(1080),m_renderCount(0),m_bFullScreen(false),
- m_bUpdateVertex(false), m_tmRender(0ul),m_waitSync(false),
+ m_bUpdateVertex(false), m_tmRender(0ul),
  m_telapse(5.0), m_nSwapTimeOut(0)
 {
 	tag = TAG_VALUE;
@@ -114,8 +114,8 @@ int CRender::create(DS_InitPrm *pPrm)
 	uint32_t screenWidth = 0, screenHeight = 0;
 	if(getDisplayResolution(NULL, screenWidth, screenHeight) == 0)
 	{
-		//m_winWidth = screenWidth;
-		//m_winHeight = screenHeight;
+		m_winWidth = screenWidth;
+		m_winHeight = screenHeight;
 	}
 	OSA_printf("screen resolution: %d x %d", screenWidth, screenHeight);
 
@@ -204,54 +204,16 @@ int CRender::create(DS_InitPrm *pPrm)
     glutInit(&argc, argv);
     int glut_screen_width = glutGet(GLUT_SCREEN_WIDTH);
     int glut_screen_height = glutGet(GLUT_SCREEN_HEIGHT);
-    OSA_printf("%s %d: glutGet %d x %d", __func__, __LINE__, glut_screen_width, glut_screen_height);
+    //OSA_printf("%s %d: glutGet %d x %d", __func__, __LINE__, glut_screen_width, glut_screen_height);
 	//Double, Use glutSwapBuffers() to show
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_MULTISAMPLE);
     //glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH | GLUT_MULTISAMPLE);
 	//Single, Use glFlush() to show
 	//glutInitDisplayMode(GLUT_SINGLE | GLUT_RGB );
-    glutInitWindowPosition(m_initPrm.winPosX, m_initPrm.winPosY);
-    glutInitWindowSize(m_winWidth, m_winHeight);
-    OSA_printf("%s %d: window(%d,%d,%d,%d)",__func__, __LINE__, m_initPrm.winPosX, m_initPrm.winPosY, m_winWidth, m_winHeight);
-
-    glutSetOption(GLUT_RENDERING_CONTEXT,GLUT_USE_CURRENT_CONTEXT);
-    m_winId = glutCreateWindow("DSS1");
-    OSA_assert(m_winId > 0);
-    glutSetWindow(m_winId);
-	if(m_initPrm.bFullScreen){
-		glutFullScreen();
-		m_bFullScreen = true;
-	}
-	glutDisplayFunc(_display);
-	glutReshapeFunc(_reshape);
-	if(m_initPrm.keyboardfunc != NULL)
-		glutKeyboardFunc(m_initPrm.keyboardfunc);
-	if(m_initPrm.keySpecialfunc != NULL)
-		glutSpecialFunc(m_initPrm.keySpecialfunc);
-	//mouse event:
-	if(m_initPrm.mousefunc != NULL)
-		glutMouseFunc(m_initPrm.mousefunc);//GLUT_LEFT_BUTTON GLUT_MIDDLE_BUTTON GLUT_RIGHT_BUTTON; GLUT_DOWN GLUT_UP
-	//glutMotionFunc();//button down
-	//glutPassiveMotionFunc();//button up
-	//glutEntryFunc();//state GLUT_LEFT, GLUT_ENTERED
-	if(m_initPrm.visibilityfunc != NULL)
-		glutVisibilityFunc(m_initPrm.visibilityfunc);
-	glutCloseFunc(_close);
-
-	GLenum err = glewInit();
-	if (GLEW_OK != err) {
-		fprintf(stderr, "\n[Render] %s %d: Error in glewInit. %s\n", __func__, __LINE__, glewGetErrorString(err));
-		return -1;
-	}
-	OSA_printf("[Render] %s %d: glewInit success", __func__, __LINE__);
-
-	gl_init();
-	OSA_printf("[Render] %s %d: gl_init success", __func__, __LINE__);
-
 
 	if(0)
 	{
-		glutInitWindowPosition(1921,0);
+		glutInitWindowPosition(1920,0);
 		glutInitWindowSize(1440, 900);
 	    glutSetOption(GLUT_RENDERING_CONTEXT,GLUT_USE_CURRENT_CONTEXT);
 	    int winId2 = glutCreateWindow("DSS2");
@@ -280,6 +242,44 @@ int CRender::create(DS_InitPrm *pPrm)
 		OSA_printf("[Render] %s %d: glewInit success", __func__, __LINE__);
 		glClearColor(1.0f, 0.0f, 0.01f, 0.0f );
 		glClear(GL_COLOR_BUFFER_BIT);
+	}
+
+    glutInitWindowPosition(m_initPrm.winPosX, m_initPrm.winPosY);
+    glutInitWindowSize(m_winWidth, m_winHeight);
+    OSA_printf("%s %d: window(%d,%d,%d,%d)",__func__, __LINE__, m_initPrm.winPosX, m_initPrm.winPosY, m_winWidth, m_winHeight);
+
+    glutSetOption(GLUT_RENDERING_CONTEXT,GLUT_USE_CURRENT_CONTEXT);
+    m_winId = glutCreateWindow("DSS1");
+    OSA_assert(m_winId > 0);
+    glutSetWindow(m_winId);
+	glutDisplayFunc(_display);
+	glutReshapeFunc(_reshape);
+	if(m_initPrm.keyboardfunc != NULL)
+		glutKeyboardFunc(m_initPrm.keyboardfunc);
+	if(m_initPrm.keySpecialfunc != NULL)
+		glutSpecialFunc(m_initPrm.keySpecialfunc);
+	//mouse event:
+	if(m_initPrm.mousefunc != NULL)
+		glutMouseFunc(m_initPrm.mousefunc);//GLUT_LEFT_BUTTON GLUT_MIDDLE_BUTTON GLUT_RIGHT_BUTTON; GLUT_DOWN GLUT_UP
+	//glutMotionFunc();//button down
+	//glutPassiveMotionFunc();//button up
+	//glutEntryFunc();//state GLUT_LEFT, GLUT_ENTERED
+	if(m_initPrm.visibilityfunc != NULL)
+		glutVisibilityFunc(m_initPrm.visibilityfunc);
+	glutCloseFunc(_close);
+
+	GLenum err = glewInit();
+	if (GLEW_OK != err) {
+		fprintf(stderr, "\n[Render] %s %d: Error in glewInit. %s\n", __func__, __LINE__, glewGetErrorString(err));
+		return -1;
+	}
+
+	gl_init();
+
+    glutSetWindow(m_winId);
+	if(m_initPrm.bFullScreen){
+		glutFullScreen();
+		m_bFullScreen = true;
 	}
 
 #endif
@@ -448,7 +448,7 @@ int CRender::initRender(bool updateMap)
 {
 	int i=0;
 
-	OSA_printf("Render::%s %d: win%d (%d x %d)", __func__, __LINE__, m_winId, m_winWidth, m_winHeight);
+	//OSA_printf("Render::%s %d: win%d (%d x %d)", __func__, __LINE__, m_winId, m_winWidth, m_winHeight);
 
 	if(updateMap){
 		m_renders[i].video_chId    = 0;
@@ -495,18 +495,25 @@ int CRender::initRender(bool updateMap)
 	return 0;
 }
 
+static unsigned long ndisCnt = 0;
 void CRender::_display(void)
 {
 	OSA_assert(gThis->tag == TAG_VALUE);
-	//OSA_printf("%s %d: winId = %d", __func__, __LINE__, glutGetWindow());
+	//OSA_printf("[%ld-%d]%s %d: winId = %d", ndisCnt++, OSA_getCurTimeInMsec(), __func__, __LINE__, glutGetWindow());
 	gThis->gl_display();
+#ifndef __EGL__
+	glutPostRedisplay();
+#endif
 }
 
 void CRender::_display2(void)
 {
 	OSA_assert(gThis->tag == TAG_VALUE);
-	//OSA_printf("%s %d: winId = %d", __func__, __LINE__, glutGetWindow());
+	//OSA_printf("[%ld-%d]%s %d: winId = %d", ndisCnt++, OSA_getCurTimeInMsec(), __func__, __LINE__, glutGetWindow());
 	gThis->gl_display2();
+#ifndef __EGL__
+	glutPostRedisplay();
+#endif
 }
 
 void CRender::_reshape(int width, int height)
@@ -648,7 +655,7 @@ int CRender::dynamic_config(DS_CFG type, int iPrm, void* pPrm)
 	return iRet;
 }
 
-GLuint CRender::async_display(int chId, int width, int height, int channels)
+GLuint CRender::gl_PBO(int chId, int width, int height, int channels)
 {
 	assert(chId>=0 && chId<DS_CHAN_MAX);
 
@@ -685,7 +692,7 @@ int CRender::gl_init(void)
 	// Blue background
 	glClearColor(1.0f, 0.0f, 0.01f, 0.0f );
 	gl_loadProgram();
-	OSA_printf("[Render] %s %d: gl_loadProgram success", __func__, __LINE__);
+	//OSA_printf("[Render] %s %d: gl_loadProgram success", __func__, __LINE__);
 
 	glGenBuffers(DS_CHAN_MAX, buffId_input);
 	glGenTextures(DS_CHAN_MAX, textureId_input);
@@ -830,14 +837,14 @@ void CRender::gl_updateTexVideo()
 				unsigned int byteCount = img.cols*img.rows*img.channels();
 				unsigned char *dev_pbo = NULL;
 				size_t tmpSize;
-				pbo = async_display(chId, img.cols, img.rows, img.channels());
+				pbo = gl_PBO(chId, img.cols, img.rows, img.channels());
 				OSA_assert(pbo == buffId_input[chId]);
 				glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
 				cudaResource_RegisterBuffer(chId, pbo, byteCount);
 				cudaResource_mapBuffer(chId, (void **)&dev_pbo, &tmpSize);
 				assert(tmpSize == byteCount);
 				cudaMemcpy(dev_pbo, img.data, byteCount, cudaMemcpyDeviceToDevice);
-				//cudaDeviceSynchronize();
+				cudaDeviceSynchronize();
 				cudaResource_unmapBuffer(chId);
 				cudaResource_UnregisterBuffer(chId);
 				img.data = NULL;
@@ -849,7 +856,7 @@ void CRender::gl_updateTexVideo()
 				unsigned int byteCount = img.cols*img.rows*img.channels();
 				unsigned char *dev_pbo = NULL;
 				size_t tmpSize;
-				pbo = async_display(chId, img.cols, img.rows, img.channels());
+				pbo = gl_PBO(chId, img.cols, img.rows, img.channels());
 				OSA_assert(pbo == buffId_input[chId]);
 				OSA_assert(img.data != NULL);
 				glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
@@ -857,7 +864,7 @@ void CRender::gl_updateTexVideo()
 				cudaResource_mapBuffer(chId, (void **)&dev_pbo, &tmpSize);
 				assert(tmpSize == byteCount);
 				cudaMemcpy(dev_pbo, img.data, byteCount, cudaMemcpyHostToDevice);
-				//cudaDeviceSynchronize();
+				cudaDeviceSynchronize();
 				cudaResource_unmapBuffer(chId);
 				cudaResource_UnregisterBuffer(chId);
 			}
@@ -1016,6 +1023,7 @@ void CRender::gl_display(void)
 	int winId, chId;
 	GLint glProg = 0;
 	int iret;
+	__suseconds_t cur_us, rd_us;
 
 	for(chId = 0; chId<m_initPrm.nChannels; chId++){
 		if(m_bufQue[chId].bMap){
@@ -1037,17 +1045,32 @@ void CRender::gl_display(void)
 	//if(m_initPrm.renderfunc == NULL)
 	if(1)
 	{
-		double wms = m_interval*0.000001 - m_telapse;
-		double wmsl = (m_tmRender == 0ul) ? 0.f : ((tStamp[0] - m_tmRender)*0.000001f);
-		wms -= wmsl;
-		//OSA_printf("%f %f", wms, wmsl);
-		if(m_waitSync && wms>2.0){
-			struct timeval timeout;
-			timeout.tv_sec = 0;
-			timeout.tv_usec = wms*1000.0;
-			select( 0, NULL, NULL, NULL, &timeout );
-		}else{
-			wms = 0.0;
+		uint64_t telapse_ns = (uint64_t)(m_telapse*1000000.f);
+		uint64_t sleep_ns = render_time_nsec - telapse_ns;
+		if (last_render_time.tv_sec != 0 && render_time_nsec>telapse_ns)
+		{
+			pthread_mutex_lock(&render_lock);
+			struct timespec waittime = last_render_time;
+			waittime.tv_nsec += sleep_ns;
+			waittime.tv_sec += waittime.tv_nsec / 1000000000UL;
+			waittime.tv_nsec %= 1000000000UL;
+	        struct timeval now;
+	        gettimeofday(&now, NULL);
+	        cur_us = (now.tv_sec * 1000000.0 + now.tv_usec);
+	        rd_us = (waittime.tv_sec * 1000000.0 + waittime.tv_nsec / 1000.0);
+	        if (rd_us<cur_us)
+	        {
+				OSA_printf("%s %d: now(%ld.%ld) %ld %ld",
+						__func__, __LINE__, now.tv_sec, now.tv_usec, cur_us, rd_us);
+	        }
+	        {
+	    		pthread_cond_timedwait(&render_cond, &render_lock,&waittime);
+	        }
+			pthread_mutex_unlock(&render_lock);
+		}
+		else{
+			//OSA_printf("%s %d: last_render_time.tv_sec=%ld render_time_nsec=%ld telapse_ns=%ld sleep_ns=%ld",
+			//		__func__, __LINE__, last_render_time.tv_sec, render_time_nsec, telapse_ns, sleep_ns);
 		}
 	}
 
@@ -1166,27 +1189,41 @@ void CRender::gl_display(void)
 
 	if(m_initPrm.renderfunc != NULL)
 		m_initPrm.renderfunc(0, RUN_SWAP, 0, 0);
-	//glFinish();
 
 	tStamp[5] = getTickCount();
 
-	m_waitSync = true;
 	int64 tcur = tStamp[5];
 	m_telapse = (tStamp[5] - tStamp[1])*0.000001f + m_initPrm.disSched;
 
-#if 1
 	if (last_render_time.tv_sec != 0)
 	{
 		pthread_mutex_lock(&render_lock);
+		struct timespec waittime = last_render_time;
 		last_render_time.tv_sec += render_time_sec;
 		last_render_time.tv_nsec += render_time_nsec;
 		last_render_time.tv_sec += last_render_time.tv_nsec / 1000000000UL;
 		last_render_time.tv_nsec %= 1000000000UL;
-		pthread_cond_timedwait(&render_cond, &render_lock,
-				&last_render_time);
+        struct timeval now;
+        gettimeofday(&now, NULL);
+        cur_us = (now.tv_sec * 1000000.0 + now.tv_usec);
+        rd_us = (last_render_time.tv_sec * 1000000.0 + last_render_time.tv_nsec / 1000.0);
+        if (rd_us>cur_us)
+        {
+    		waittime.tv_sec += render_time_sec;
+    		waittime.tv_nsec += render_time_nsec-500000UL;
+    		waittime.tv_sec += waittime.tv_nsec / 1000000000UL;
+    		waittime.tv_nsec %= 1000000000UL;
+    		pthread_cond_timedwait(&render_cond, &render_lock,&waittime);
+        }
+        else if(rd_us+10000UL<cur_us)
+        {
+            OSA_printf("%s %d: win%d frame_is_late(%ld us)", __func__, __LINE__, glutGetWindow(), cur_us - rd_us);
+            memset(&last_render_time, 0, sizeof(last_render_time));
+        }
 		pthread_mutex_unlock(&render_lock);
 	}
-#endif
+
+	//glFinish();
 
 	int64 tSwap = getTickCount();
 #ifdef __EGL__
@@ -1197,17 +1234,17 @@ void CRender::gl_display(void)
 	tStamp[6] = getTickCount();
 
 #if 1
-	if(tStamp[6]-tSwap>5000000UL)
+	if(tStamp[6]-tSwap>3000000UL)
 		m_nSwapTimeOut++;
 	else
 		m_nSwapTimeOut = 0;
-	if (last_render_time.tv_sec == 0 || m_nSwapTimeOut>3)
+	if (last_render_time.tv_sec == 0 || m_nSwapTimeOut>=3)
 	{
 		struct timeval now;
 		gettimeofday(&now, NULL);
 		last_render_time.tv_sec = now.tv_sec;
 		last_render_time.tv_nsec = now.tv_usec * 1000L;
-		printf("\r\nReset render timer. fps(%d) swp(%ld)", m_initPrm.disFPS, tStamp[6]-tSwap);
+		printf("\r\nReset render timer. fps(%d) swp(%ld ns)", m_initPrm.disFPS, tStamp[6]-tSwap);
 		fflush(stdout);
 	}
 #endif
@@ -1237,9 +1274,6 @@ void CRender::gl_display(void)
 	//	OSA_printf("%s %d: null", __func__, __LINE__);
 	//}
 	m_tmRender = tend;
-#ifndef __EGL__
-	glutPostRedisplay();
-#endif
 }
 
 void CRender::gl_display2(void)
@@ -1344,11 +1378,11 @@ void CRender::gl_display2(void)
 
 	if(m_initPrm.renderfunc != NULL)
 		m_initPrm.renderfunc(1, RUN_SWAP, 0, 0);
+	//glFinish();
 #ifdef __EGL__
 	eglSwapBuffers(egl_display, egl_surface);
 #else
 	glutSwapBuffers();
-	glutPostRedisplay();
 #endif
 	if(m_initPrm.renderfunc != NULL)
 		m_initPrm.renderfunc(1, RUN_LEAVE, 0, 0);

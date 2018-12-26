@@ -3,6 +3,9 @@
 ################################################################################
 
 # Add inputs and outputs from these tool invocations to the build variables 
+CU_SRCS += \
+../src/nvMedia/NvAnalysis.cu 
+
 CPP_SRCS += \
 ../src/nvMedia/NvApplicationProfiler.cpp \
 ../src/nvMedia/NvBuffer.cpp \
@@ -20,12 +23,6 @@ CPP_SRCS += \
 ../src/nvMedia/NvVideoDecoder.cpp \
 ../src/nvMedia/NvVideoEncoder.cpp \
 ../src/nvMedia/crEglRenderer.cpp 
-
-CU_SRCS += \
-../src/nvMedia/NvAnalysis.cu 
-
-CU_DEPS += \
-./src/nvMedia/NvAnalysis.d 
 
 OBJS += \
 ./src/nvMedia/NvAnalysis.o \
@@ -45,6 +42,9 @@ OBJS += \
 ./src/nvMedia/NvVideoDecoder.o \
 ./src/nvMedia/NvVideoEncoder.o \
 ./src/nvMedia/crEglRenderer.o 
+
+CU_DEPS += \
+./src/nvMedia/NvAnalysis.d 
 
 CPP_DEPS += \
 ./src/nvMedia/NvApplicationProfiler.d \
