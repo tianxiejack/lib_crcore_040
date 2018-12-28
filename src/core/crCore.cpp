@@ -401,7 +401,7 @@ static int enableTrackByMMTD(int index, cv::Size *winSize, bool bFixSize)
 
 	proc->dynamic_config(CTrackerProc::VP_CFG_AcqWinSize, bFixSize);
 	curFixSizeFlag = bFixSize;
-	enableTrackFlag = enable;
+	enableTrackFlag = true;
 	return proc->dynamic_config(CTrackerProc::VP_CFG_TrkEnable, true, &acqrc, sizeof(acqrc));
 #endif
 }
