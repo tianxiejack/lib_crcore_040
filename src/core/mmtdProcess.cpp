@@ -4,7 +4,7 @@
 #define CONFIG_MMT_FILE		"ConfigMmtFile.yml"
 
 CMMTDProcess::CMMTDProcess(IProcess *proc)
-	:CProcessBase(proc),m_nCount(MAX_TGT_NUM-1),m_curChId(0), m_bEnable(false),m_nDrop(0),
+	:CProcessBase(proc),m_nCount(MAX_TGT_NUM-1),m_nSelect(MAX_TGT_NUM-1),m_curChId(0), m_bEnable(false),m_nDrop(0),
 	 m_fovId(0), m_ezoomx(1), m_bHide(false)
 {
 	memset(m_target, 0, sizeof(m_target));
@@ -143,7 +143,7 @@ int CMMTDProcess::process(int chId, int fovId, int ezoomx, Mat frame, uint64_t t
 		memcpy(&m_target, &targets, sizeof(m_target));
 		for(int i=0; i<m_nCount; i++)
 		{
-			if(m_target[i].valid && !m_bHide){
+			if(m_target[i].valid && nValid<m_nSelect && !m_bHide){
 				m_units[chId][i].bNeedDraw = true;
 				m_units[chId][i].orgPos = Point(m_target[i].Box.x + m_target[i].Box.width/2, m_target[i].Box.y + m_target[i].Box.height/2);
 				m_units[chId][i].orgRC = m_target[i].Box;
@@ -204,6 +204,9 @@ int CMMTDProcess::dynamic_config(int type, int iPrm, void* pPrm, int prmSize)
 	case VP_CFG_MMTDTargetCount:
 		m_nCount = iPrm;
 		m_mmtd->SetTargetNum(m_nCount);
+		m_nSelect = m_nCount;
+		if(pPrm != NULL)
+			m_nSelect = *(int*)pPrm;
 		iret = OSA_SOK;
 		break;
 	case VP_CFG_MMTDEnable:

@@ -35,6 +35,7 @@ public:
 #define CORE_TGT_NUM_MAX	(32)
 typedef struct{
 	int valid;
+	int index;
 	cv::Rect Box;
 	cv::Point2f pos;
 }CORE_TGT_INFO;
@@ -102,7 +103,7 @@ public:
 	virtual int setSubChId(int chId) = 0;
 	virtual int enableTrack(bool enable, cv::Size winSize, bool bFixSize = false) = 0;
 	virtual int enableTrack(bool enable, Rect2f winRect, bool bFixSize = false) = 0;
-	virtual int enableMMTD(bool enable, int nTarget) = 0;
+	virtual int enableMMTD(bool enable, int nTarget, int nSel = 0) = 0;
 	virtual int enableTrackByMMTD(int index, cv::Size *winSize = NULL, bool bFixSize = false) = 0;
 	virtual int enableMotionDetect(bool enable) = 0;
 	virtual int enableEnh(bool enable) = 0;

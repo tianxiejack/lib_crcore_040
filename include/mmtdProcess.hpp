@@ -17,6 +17,7 @@ class CMMTDProcess : public CProcessBase
 	CMMTD *m_mmtd;
 	int m_curChId;
 	int m_nCount;
+	int m_nSelect;
 	int m_nDrop;
 	int m_fovId;
 	int m_ezoomx;

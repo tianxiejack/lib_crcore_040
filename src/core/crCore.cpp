@@ -323,12 +323,14 @@ static int enableTrack(bool enable, UTC_RECT_float winRect, bool bFixSize)
 	return iret;
 }
 
-static int enableMMTD(bool enable, int nTarget)
+static int enableMMTD(bool enable, int nTarget, int nSel)
 {
 #if 1
 	int iret = OSA_SOK;
+	if(nSel <= 0)
+		nSel = nTarget;
 	if(enable)
-		proc->dynamic_config(CMMTDProcess::VP_CFG_MMTDTargetCount, nTarget);
+		proc->dynamic_config(CMMTDProcess::VP_CFG_MMTDTargetCount, nTarget, &nSel, sizeof(nSel));
 	proc->dynamic_config(CMMTDProcess::VP_CFG_MMTDEnable, enable);
 	enableMMTDFlag = enable;
 	return iret;
@@ -399,6 +401,7 @@ static int enableTrackByMMTD(int index, cv::Size *winSize, bool bFixSize)
 
 	proc->dynamic_config(CTrackerProc::VP_CFG_AcqWinSize, bFixSize);
 	curFixSizeFlag = bFixSize;
+	enableTrackFlag = enable;
 	return proc->dynamic_config(CTrackerProc::VP_CFG_TrkEnable, true, &acqrc, sizeof(acqrc));
 #endif
 }
@@ -1432,9 +1435,9 @@ public:
 		update();
 		return ret;
 	}
-	virtual int enableMMTD(bool enable, int nTarget)
+	virtual int enableMMTD(bool enable, int nTarget, int nSel = 0)
 	{
-		int ret = cr_local::enableMMTD(enable, nTarget);
+		int ret = cr_local::enableMMTD(enable, nTarget, nSel);
 		update();
 		return ret;
 	}
@@ -1591,6 +1594,7 @@ void Core_1001::update()
 		for(int i=0; i<cnt; i++)
 		{
 			m_stats.tgts[i].valid = cr_local::mmtd->m_target[i].valid;
+			m_stats.tgts[i].index = i;
 			m_stats.tgts[i].Box = cr_local::mmtd->m_target[i].Box;
 			m_stats.tgts[i].pos = tRectCenter(m_stats.tgts[i].Box);
 		}
@@ -1602,6 +1606,7 @@ void Core_1001::update()
 		for(i=0; i<cnt; i++)
 		{
 			m_stats.tgts[i].valid = true;
+			m_stats.tgts[i].index = cr_local::motion->m_targets[chId][i].index;
 			m_stats.tgts[i].Box = cr_local::motion->m_targets[chId][i].targetRect;
 			m_stats.tgts[i].pos = tRectCenter(m_stats.tgts[i].Box);
 		}
