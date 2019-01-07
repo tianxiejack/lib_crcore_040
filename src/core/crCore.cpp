@@ -899,7 +899,11 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 	general->m_bHide = bHideOSD;
 
 	for(chId=0; chId<channels; chId++){
-		general->m_dc[chId] = imgOsd[chId];
+		if(!bEncoder && bRender)
+			general->m_dc[chId] = cv::Mat(initParam->renderSize.height, initParam->renderSize.width, CV_8UC1);
+		else
+			general->m_dc[chId] = imgOsd[chId];
+
 		general->m_vosds[chId] = vOSDs[chId];
 		general->m_imgSize[chId] = channelsImgSize[chId];
 	}

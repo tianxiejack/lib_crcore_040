@@ -23,6 +23,7 @@ class CMMTDProcess : public CProcessBase
 	int m_ezoomx;
 	OSDU_Info m_units[MAX_CHAN][MAX_TGT_NUM];
 	cv::Size m_imgSize[MAX_CHAN];
+	int MinArea[MAX_CHAN], MaxArea[MAX_CHAN];
 	int ReadCfgMmtFromFile();
 public :
 	enum{

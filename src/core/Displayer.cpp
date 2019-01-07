@@ -521,6 +521,7 @@ void CRender::_reshape(int width, int height)
 	assert(gThis != NULL);
 	gThis->m_winWidth = width;
 	gThis->m_winHeight = height;
+	OSA_printf("CRender::%s %d: win(%dx%d)", __func__, __LINE__, width, height);
 	gThis->initRender(false);
 	gThis->gl_updateVertex();
 }
@@ -1054,15 +1055,16 @@ void CRender::gl_display(void)
 			waittime.tv_nsec += sleep_ns;
 			waittime.tv_sec += waittime.tv_nsec / 1000000000UL;
 			waittime.tv_nsec %= 1000000000UL;
-	        struct timeval now;
+	        /*struct timeval now;
 	        gettimeofday(&now, NULL);
 	        cur_us = (now.tv_sec * 1000000.0 + now.tv_usec);
 	        rd_us = (waittime.tv_sec * 1000000.0 + waittime.tv_nsec / 1000.0);
 	        if (rd_us<cur_us)
 	        {
-				OSA_printf("%s %d: now(%ld.%ld) %ld %ld",
-						__func__, __LINE__, now.tv_sec, now.tv_usec, cur_us, rd_us);
-	        }
+				OSA_printf("%s %d: last(%ld.%ld) now(%ld.%ld)sleep_ns(%ld) wait(%ld.%ld)",
+						__func__, __LINE__, last_render_time.tv_sec, last_render_time.tv_nsec/1000UL,
+						now.tv_sec, now.tv_usec, sleep_ns, waittime.tv_sec, waittime.tv_nsec/1000UL);
+	        }else*/
 	        {
 	    		pthread_cond_timedwait(&render_cond, &render_lock,&waittime);
 	        }
@@ -1218,7 +1220,8 @@ void CRender::gl_display(void)
         else if(rd_us+10000UL<cur_us)
         {
             OSA_printf("%s %d: win%d frame_is_late(%ld us)", __func__, __LINE__, glutGetWindow(), cur_us - rd_us);
-            memset(&last_render_time, 0, sizeof(last_render_time));
+            if(cur_us - rd_us > 10000UL)
+            	memset(&last_render_time, 0, sizeof(last_render_time));
         }
 		pthread_mutex_unlock(&render_lock);
 	}

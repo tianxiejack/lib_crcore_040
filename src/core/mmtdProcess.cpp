@@ -101,6 +101,10 @@ int CMMTDProcess::process(int chId, int fovId, int ezoomx, Mat frame, uint64_t t
 
 	if(m_nDrop>0){
 		m_nDrop --;
+		if(m_nDrop == 0){
+			m_mmtd->SetConRegMinMaxArea(MinArea[m_curChId], MaxArea[m_curChId]);
+			OSA_printf("%s %d: ch%d m_mmtd->SetConRegMinMaxArea(%d, %d)", __func__, __LINE__, m_curChId, MinArea[m_curChId], MaxArea[m_curChId]);
+		}
 		return iRet;
 	}
 
@@ -281,17 +285,15 @@ int CMMTDProcess::ReadCfgMmtFromFile()
 				return -1;
 		}
 
-
 		int DetectGapparm;
 		DetectGapparm = (int)cfg_blk_val[0];
 		if((DetectGapparm<0) || (DetectGapparm>15))
 			DetectGapparm = 10;
 		m_mmtd->SetSRDetectGap(DetectGapparm);
 
-		int MinArea, MaxArea;
-		MinArea = (int)cfg_blk_val[1];
-		MaxArea = (int)cfg_blk_val[2];
-		m_mmtd->SetConRegMinMaxArea(MinArea, MaxArea);
+		MinArea[0] = (int)cfg_blk_val[1];
+		MaxArea[0] = (int)cfg_blk_val[2];
+		m_mmtd->SetConRegMinMaxArea(MinArea[0], MaxArea[0]);
 
 		int stillPixel, movePixel;
 		stillPixel = (int)cfg_blk_val[3];
@@ -327,11 +329,23 @@ int CMMTDProcess::ReadCfgMmtFromFile()
 		int SalientSize;
 		SalientSize 	= (int)cfg_blk_val[13];
 		m_mmtd->SetSalientSize(cv::Size(SalientSize,SalientSize));
-		OSA_printf("DetectGapparm, MinArea, MaxArea,stillPixel, movePixel,lapScaler,lumThred,SalientSize = %d,%d,%d,%d,%d,%f,%d,%d\n",
-					DetectGapparm, MinArea, MaxArea,stillPixel, movePixel,lapScaler,lumThred,SalientSize);
+		OSA_printf("DetectGapparm, MinArea[0], MaxArea[0],stillPixel, movePixel,lapScaler,lumThred,SalientSize = %d,%d,%d,%d,%d,%f,%d,%d\n",
+					DetectGapparm, MinArea[0], MaxArea[0],stillPixel, movePixel,lapScaler,lumThred,SalientSize);
 
+		int item = 14;
+		for(int chId=1; chId<MAX_CHAN; chId++){
+			int mina = (int)cfg_blk_val[item++];
+			int maxa = (int)cfg_blk_val[item++];
+			if(mina>0&&maxa>0){
+				MinArea[chId] = mina;
+				MaxArea[chId] = maxa;
+			}else{
+				MinArea[chId] = MinArea[0];
+				MaxArea[chId] = MaxArea[0];
+			}
+			OSA_printf("MinArea[%d] = %d, MaxArea[%d] = %d", chId, MinArea[chId], chId, MaxArea[chId]);
+		}
 		return 0;
-
 	}
 	else
 		return -1;

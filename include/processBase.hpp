@@ -117,7 +117,7 @@ __inline__ cv::Point2f tPosScale(cv::Point2f pos, cv::Size imgSize, float fscale
 
 __inline__ cv::Point2f tPosScale(cv::Point2f pos, cv::Size orgSize, cv::Size scaleSize)
 {
-	cv::Point2f fscale(scaleSize.width/orgSize.width, scaleSize.height/orgSize.height);
+	cv::Point2f fscale((float)scaleSize.width/orgSize.width, (float)scaleSize.height/orgSize.height);
 	float x = scaleSize.width/2.0f - (orgSize.width/2.0f - pos.x)*fscale.x;
 	float y = scaleSize.height/2.0f - (orgSize.height/2.0f - pos.y)*fscale.y;
 	return cv::Point2f(x, y);
@@ -140,7 +140,7 @@ __inline__ Rect tRectScale(Rect rc, cv::Size imgSize, float fscale)
 __inline__ Rect tRectScale(Rect rc, cv::Size orgSize, cv::Size toSize)
 {
 	Rect ret;
-	cv::Point2f fscale(toSize.width/orgSize.width, toSize.height/orgSize.height);
+	cv::Point2f fscale((float)toSize.width/orgSize.width, (float)toSize.height/orgSize.height);
 	ret.x = (int)(toSize.width/2.0f - (orgSize.width/2.0f - rc.x)*fscale.x + 0.5f);
 	ret.y = (int)(toSize.height/2.0f - (orgSize.height/2.0f - rc.y)*fscale.y+ 0.5f);
 	ret.width = (int)(rc.width*fscale.x+0.5f);
@@ -151,7 +151,7 @@ __inline__ Rect tRectScale(Rect rc, cv::Size orgSize, cv::Size toSize)
 __inline__ RotatedRect tRectScale(cv::RotatedRect rc, cv::Size orgSize, cv::Size toSize)
 {
 	cv::RotatedRect ret;
-	cv::Point2f fscale(toSize.width/orgSize.width, toSize.height/orgSize.height);
+	cv::Point2f fscale((float)toSize.width/orgSize.width, (float)toSize.height/orgSize.height);
 	ret = rc;
 	ret.center = cv::Point2f((toSize.width/2.0f - (orgSize.width/2.0f - rc.center.x)*fscale.x),
 			(toSize.height/2.0f - (orgSize.height/2.0f - rc.center.y)*fscale.y));
@@ -171,7 +171,7 @@ __inline__ Rect2f tRectScale(Rect2f rc, cv::Size imgSize, float fscale)
 __inline__ Rect2f tRectScale(Rect2f rc, cv::Size orgSize, cv::Size toSize)
 {
 	Rect2f ret;
-	cv::Point2f fscale(toSize.width/orgSize.width, toSize.height/orgSize.height);
+	cv::Point2f fscale((float)toSize.width/orgSize.width, (float)toSize.height/orgSize.height);
 	ret.x = toSize.width/2.0f - (orgSize.width/2.0f - rc.x)*fscale.x;
 	ret.y = toSize.height/2.0f - (orgSize.height/2.0f - rc.y)*fscale.y;
 	ret.width = rc.width*fscale.x;

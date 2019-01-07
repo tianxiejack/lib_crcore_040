@@ -111,7 +111,8 @@ int CSceneProcess::process(int chId, int fovId, int ezoomx, Mat frame, uint64_t 
 #define M3D_PI_DIV_180 (0.017453292519943296)
 void CSceneProcess::detect(const Mat& frame, int chId)
 {
-	Rect roi = Rect(100-100*sin((m_cnt[chId]%60)*6*M3D_PI_DIV_180), 100, frame.cols-200, frame.rows-200);
+	//Rect roi = Rect(100-100*sin((m_cnt[chId]%60)*6*M3D_PI_DIV_180), 100, frame.cols-200, frame.rows-200);
+	Rect roi = Rect(100, 100, frame.cols-200, frame.rows-200);
 	Mat frameROI(frame, roi);
 
 	struct timespec now;

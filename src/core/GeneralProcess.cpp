@@ -95,7 +95,7 @@ bool CGeneralProc::OnPreProcess(int chId, Mat &frame)
 __inline__ UTC_RECT_float tRectScale(UTC_RECT_float rc, cv::Size orgSize, cv::Size scaleSize)
 {
 	UTC_RECT_float ret;
-	cv::Point2f fscale(scaleSize.width/orgSize.width, scaleSize.height/orgSize.height);
+	cv::Point2f fscale((float)scaleSize.width/orgSize.width, (float)scaleSize.height/orgSize.height);
 	ret.x = scaleSize.width/2.0f - (orgSize.width/2.0f - rc.x)*fscale.x;
 	ret.y = scaleSize.height/2.0f - (orgSize.height/2.0f - rc.y)*fscale.y;
 	ret.width = rc.width*fscale.x;
@@ -126,6 +126,23 @@ int CGeneralProc::OnOSD(int chId, int fovId, int ezoomx, Mat& dc, IDirectOSD *os
 	if((curChId == chId && curTrack && !m_bHide)){
 		osd_cvdraw_trk(dc, osd, curRC, curStat, true);
 	}
+#if 0
+	if(curChId == chId){
+		static unsigned int dbgCnt = 0;
+		if(m_iTrackStat>0)
+		{
+			dbgCnt++;
+			if(dbgCnt == 1){
+				OSA_printf("%s %d: ch%d fov%d ezoomx%d, img(%d,%d) dc(%d,%d axsis(%f,%f)(%d,%d)",
+						__func__, __LINE__, chId, fovId, ezoomx,
+						m_imgSize[chId].width, m_imgSize[chId].height,dc.cols, dc.rows,
+						curAxis.x, curAxis.y, axis.x, axis.y);
+			}
+		}else{
+			dbgCnt = 0;
+		}
+	}
+#endif
 
 	return ret;
 }

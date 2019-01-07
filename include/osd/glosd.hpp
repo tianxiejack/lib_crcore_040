@@ -39,6 +39,7 @@ protected:
 	size_t m_textLen;
 	OSA_MutexHndl *m_mutexlock;
 	const wchar_t *m_sValue;
+	const char *m_strValue;
 	const int* m_iValue;
 	const unsigned int* m_uiValue;
 	const unsigned char* m_byValue;
@@ -55,6 +56,7 @@ public:
 	void setcolor(const cv::Scalar& color);
 	void setpos(const cv::Point& pt);
 	void txt(const cv::Point& pt, const wchar_t* text, const cv::Scalar& color);
+	void txt(const cv::Point& pt, const char* text, const cv::Scalar& color);
 	void txt(const cv::Point& pt, const unsigned char *byValue, const wchar_t* format, const cv::Scalar& color);
 	void txt(const cv::Point& pt, const int *iValue, const wchar_t* format, const cv::Scalar& color);
 	void txt(const cv::Point& pt, const unsigned int *uiValue, const wchar_t* format, const cv::Scalar& color);
@@ -212,10 +214,6 @@ protected:
 	aUNIT mapUnits;
 	vPtt vPatterns;
 	std::vector<int> vecCnt;
-	GLfloat *vVertexArray;
-	GLfloat *vColorArray;
-	int m_allocCnt;
-	int m_iCur;
 	cv::Scalar m_color;
 	int m_thickness;
 protected:
