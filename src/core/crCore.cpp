@@ -603,6 +603,7 @@ static int setOSDColor(int value, int thickness)
 	colorYUVFlag = value;
 	colorRGBAFlag = cv::Scalar(R,G,B,255);
 	curThicknessFlag = thickness;
+	return OSA_SOK;
 }
 
 static int setOSDColor(cv::Scalar rgba, int thickness)
@@ -615,6 +616,17 @@ static int setOSDColor(cv::Scalar rgba, int thickness)
 	colorYUVFlag = (Y&0xff)|((U&0xff)<<8)|((V&0xff)<<16);
 	colorRGBAFlag = rgba;
 	curThicknessFlag = thickness;
+	return OSA_SOK;
+}
+
+static int setHideSysOsd(bool bHideOSD)
+{
+	svm->m_bHide = bHideOSD;
+	blob->m_bHide = bHideOSD;
+	motion->m_bHide = bHideOSD;
+	mmtd->m_bHide = bHideOSD;
+	general->m_bHide = bHideOSD;
+	return OSA_SOK;
 }
 
 
@@ -1561,6 +1573,12 @@ public:
 	virtual int setEncTransLevel(int iLevel)
 	{
 		int ret = cr_local::setEncTransLevel(iLevel);
+		update();
+		return ret;
+	}
+	virtual int setHideSysOsd(bool bHideOSD)
+	{
+		int ret = cr_local::setHideSysOsd(bHideOSD);
 		update();
 		return ret;
 	}

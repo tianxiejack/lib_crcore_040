@@ -9,15 +9,16 @@
 #define CRCORE_HPP_
 
 /***********************************************
- * core version 1.0.7
+ * core version 1.0.8
  *
  * 20/12/2018 motify: CORE1001_INIT_PARAM::renderHook
  *	enum{	 RUN_ENTER = 0,RUN_WIN,	RUN_SWAP,	RUN_LEAVE };
+ * 11/01/2019 motify: int ICore_1001::setHideSysOsd(bool bHideOSD)
  */
 #include "osa.h"
 #include "osa_sem.h"
 
-#define CORE_1001_VERSION_  "1.0.7"
+#define CORE_1001_VERSION_  "1.0.8"
 #define COREID_1001			(0x10010000)
 #define COREID_1001_040		(CORNID_1001 + 1)
 
@@ -124,6 +125,7 @@ public:
 	virtual int setOSDColor(int yuv, int thickness = 2) = 0;
 	virtual int setOSD(cv::Scalar color, int thickness = 2) = 0;
 	virtual int setEncTransLevel(int iLevel) = 0;
+	virtual int setHideSysOsd(bool bHideOSD) = 0;
 
 	CORE1001_STATS m_stats;
 	cv::Mat m_dc[CORE_CHN_MAX];
