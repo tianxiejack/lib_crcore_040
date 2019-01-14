@@ -234,18 +234,20 @@ void CBlobDetectProcess::update(int chId)
 	//OSA_printf("%s %d: ch%d size = %ld", __func__, __LINE__, chId, m_targets[chId].size());
 	//OSA_mutexLock(&m_mutexlock);
 	int cnt = 0;
-	if(!m_bHide){
+	{
 		int i=0;
 		if(m_bEnable&& m_curChId == chId){
 			cnt = m_targets[chId].size();
 			cnt = m_nCount < cnt ? m_nCount : cnt;
-			for(i=0; i<cnt; i++)
-			{
-				m_units[chId][i].bNeedDraw = true;
-				m_units[chId][i].orgPos = Point(m_targets[chId][i].targetRect.center.x+0.5,
-						m_targets[chId][i].targetRect.center.y+0.5);
-				m_units[chId][i].orgRRC = m_targets[chId][i].targetRect;
-				m_units[chId][i].orgValue = m_targets[chId][i].index;
+			if(!m_bHide){
+				for(i=0; i<cnt; i++)
+				{
+					m_units[chId][i].bNeedDraw = true;
+					m_units[chId][i].orgPos = Point(m_targets[chId][i].targetRect.center.x+0.5,
+							m_targets[chId][i].targetRect.center.y+0.5);
+					m_units[chId][i].orgRRC = m_targets[chId][i].targetRect;
+					m_units[chId][i].orgValue = m_targets[chId][i].index;
+				}
 			}
 		}
 		for(;i<MAX_BLOB_TGT_NUM; i++)
