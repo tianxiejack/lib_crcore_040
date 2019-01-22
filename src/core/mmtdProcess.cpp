@@ -97,6 +97,8 @@ int CMMTDProcess::process(int chId, int fovId, int ezoomx, Mat frame, uint64_t t
 		m_mmtd->ClearAllMMTD();
 		m_fovId= fovId;
 		m_nDrop = 3;
+		for(int i=0; i<MAX_TGT_NUM; i++)
+			m_units[m_curChId][i].bNeedDraw = false;
 	}
 
 	if(m_nDrop>0){
@@ -121,6 +123,8 @@ int CMMTDProcess::process(int chId, int fovId, int ezoomx, Mat frame, uint64_t t
 		if(m_ezoomx!=ezoomx){
 			m_mmtd->ClearAllMMTD();
 			m_ezoomx=ezoomx;
+			for(int i=0; i<MAX_TGT_NUM; i++)
+				m_units[m_curChId][i].bNeedDraw = false;
 		}
 		if(m_ezoomx<=1){
 			m_mmtd->MMTDProcessRect(frame, targets, roi, frame, 0);
@@ -147,14 +151,23 @@ int CMMTDProcess::process(int chId, int fovId, int ezoomx, Mat frame, uint64_t t
 		memcpy(&m_target, &targets, sizeof(m_target));
 		for(int i=0; i<m_nCount; i++)
 		{
-			if(m_target[i].valid && nValid<m_nSelect && !m_bHide){
-				m_units[chId][i].bNeedDraw = true;
+			if(m_target[i].valid && m_units[chId][i].bNeedDraw && !m_bHide){
 				m_units[chId][i].orgPos = Point(m_target[i].Box.x + m_target[i].Box.width/2, m_target[i].Box.y + m_target[i].Box.height/2);
 				m_units[chId][i].orgRC = m_target[i].Box;
 				m_units[chId][i].orgValue = i;
 				nValid ++ ;
 			}else{
 				m_units[chId][i].bNeedDraw = false;
+			}
+		}
+		for(int i=0; i<m_nCount; i++)
+		{
+			if(!m_units[chId][i].bNeedDraw && m_target[i].valid && nValid<m_nSelect && !m_bHide){
+				m_units[chId][i].bNeedDraw = true;
+				m_units[chId][i].orgPos = Point(m_target[i].Box.x + m_target[i].Box.width/2, m_target[i].Box.y + m_target[i].Box.height/2);
+				m_units[chId][i].orgRC = m_target[i].Box;
+				m_units[chId][i].orgValue = i;
+				nValid ++ ;
 			}
 		}
 		//OSA_mutexUnlock(&m_mutexlock);
