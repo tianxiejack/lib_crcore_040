@@ -144,6 +144,8 @@ void CTrackerProc::main_proc_func()
 			dynamic_config_(msgRcv.cmd, msgRcv.flags, msgRcv.pPrm);
 			if(msgRcv.pPrm != NULL)
 				OSA_memFree(msgRcv.pPrm);
+			if(m_usrNotifySem!=NULL)
+				OSA_semSignal(m_usrNotifySem);
 			continue;
 		}
 
