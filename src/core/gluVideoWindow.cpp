@@ -23,12 +23,12 @@ CGluVideoWindow::CGluVideoWindow(const cv::Rect& rc, int parent, int nRender):CG
 	memset(&m_initPrm, 0, sizeof(m_initPrm));
 	memset(m_tmBak, 0, sizeof(m_tmBak));
 	m_initPrm.disSched = 3.5;
-	for(int chId = 0; chId<VWIND_CHAN_MAX; chId++){
+	for(int chId = 0; chId<VWIN_CHAN_MAX; chId++){
 		m_blendMap[chId] = -1;
 		m_maskMap[chId] = -1;
 	}
 
-	for(int i=0; i<VWIND_CHAN_MAX*VWIND_CHAN_MAX; i++){
+	for(int i=0; i<VWIN_CHAN_MAX*VWIN_CHAN_MAX; i++){
 		m_glmat44fBlend[i] = cv::Matx44f::eye();
 		m_glBlendPrm[i].fAlpha = 0.5f;
 		m_glBlendPrm[i].thr0Min = 0;
@@ -61,8 +61,47 @@ int CGluVideoWindow::setFPS(int fps)
     return 0;
 }
 
+#include <X11/Xlib.h>
+static int getDisplayResolution(const char* display_name,uint32_t &width, uint32_t &height)
+{
+    int screen_num;
+    Display * x_display = XOpenDisplay(display_name);
+    if (NULL == x_display)
+    {
+        return  -1;
+    }
+
+    screen_num = DefaultScreen(x_display);
+    width = DisplayWidth(x_display, screen_num);
+    height = DisplayHeight(x_display, screen_num);
+
+    XCloseDisplay(x_display);
+    x_display = NULL;
+
+    return 0;
+}
+
 int CGluVideoWindow::Create(const VWIND_Prm& param)
 {
+	static bool bInitGLUT = false;
+	if(!bInitGLUT)
+	{
+		char strParams[][32] = {"DS_RENDER", "-display", ":0"};
+		char *argv[3];
+		int argc = 1;
+		for(int i=0; i<argc; i++)
+			argv[i] = strParams[i];
+		uint32_t screenWidth = 0, screenHeight = 0;
+		if(getDisplayResolution(NULL, screenWidth, screenHeight) == 0)
+		{
+			//m_winWidth = screenWidth;
+			//m_winHeight = screenHeight;
+		}
+		OSA_printf("screen resolution: %d x %d", screenWidth, screenHeight);
+	    glutInit(&argc, argv);
+	    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH | GLUT_MULTISAMPLE);
+	    bInitGLUT = true;
+	}
 	int iRet = CGluWindow::Create(param.bFullScreen);
 
 	memcpy(&m_initPrm, &param, sizeof(VWIND_Prm));
@@ -93,7 +132,7 @@ int CGluVideoWindow::Create(const VWIND_Prm& param)
 	for(int i=0; i<m_nRender; i++){
 		CGLVideoBlendRender *render = CreateVedioRender(i);
 		OSA_assert(render != NULL);
-		vvideoRenders.push_back(render);
+		m_vvideoRenders.push_back(render);
 	}
 
 	if(!CGLVideoRender::m_bLoadProgram)
@@ -121,10 +160,10 @@ void CGluVideoWindow::Destroy()
 	}
 	m_vvideos.clear();
 	for(int i=0; i<m_nRender; i++){
-		CGLVideoBlendRender *render = vvideoRenders[i];
+		CGLVideoBlendRender *render = m_vvideoRenders[i];
 		delete render;
 	}
-	vvideoRenders.clear();
+	m_vvideoRenders.clear();
 	OSA_mutexUnlock(&m_mutex);
     pthread_mutex_lock(&render_lock);
     pthread_cond_broadcast(&render_cond);
@@ -138,7 +177,7 @@ void CGluVideoWindow::Display()
 	//OSA_printf("[%d] %s %d: GLU%d enter", OSA_getCurTimeInMsec(), __func__, __LINE__, m_winId);
 	OSA_mutexLock(&m_mutex);
 	int chId, winId;
-	for(chId = 0; chId<VWIND_CHAN_MAX; chId++){
+	for(chId = 0; chId<VWIN_CHAN_MAX; chId++){
 		if(m_bufQue[chId] != NULL && m_bufQue[chId]->bMap){
 			for(int i=0; i<m_bufQue[chId]->numBuf; i++){
 				cuMap(&m_bufQue[chId]->bufInfo[i]);
@@ -197,20 +236,20 @@ void CGluVideoWindow::Display()
 	tStamp[4] = getTickCount();
 
 	OSA_mutexLock(&m_mutex);
-	OSA_assert(m_nRender == vvideoRenders.size());
+	OSA_assert(m_nRender == m_vvideoRenders.size());
 	for(winId=0; winId<m_nRender; winId++){
-		CGLVideoBlendRender *render = vvideoRenders[winId];
+		CGLVideoBlendRender *render = m_vvideoRenders[winId];
 		OSA_assert(render != NULL);
 		if(render->m_video == NULL)
 			continue;
 		chId = render->m_video->m_idx;
-		if(chId < 0 || chId >= VWIND_CHAN_MAX)
+		if(chId < 0 || chId >= VWIN_CHAN_MAX)
 			continue;
 		int blend_chId = m_blendMap[chId];
 		if(blend_chId>=0){
 			render->blend(m_vvideos[blend_chId]);
-			render->matrix(m_glmat44fBlend[chId*VWIND_CHAN_MAX+blend_chId]);
-			render->params(m_glBlendPrm[chId*VWIND_CHAN_MAX+blend_chId]);
+			render->matrix(m_glmat44fBlend[chId*VWIN_CHAN_MAX+blend_chId]);
+			render->params(m_glBlendPrm[chId*VWIN_CHAN_MAX+blend_chId]);
 		}
 		render->render();
 		if(m_initPrm.renderfunc != NULL)
@@ -303,8 +342,8 @@ void CGluVideoWindow::Reshape(int width, int height)
 {
 	//OSA_printf("[%d] %s %d: GLU%d %d x %d", OSA_getCurTimeInMsec(), __func__, __LINE__, m_winId, width, height);
 	CGluWindow::Reshape(width, height);
-	for(int i=0; i<vvideoRenders.size(); i++){
-		CGLVideoBlendRender *render = vvideoRenders[i];
+	for(int i=0; i<m_vvideoRenders.size(); i++){
+		CGLVideoBlendRender *render = m_vvideoRenders[i];
 		if(render != NULL){
 			cv::Rect viewPort = cv::Rect(0, 0, m_rcReal.width, m_rcReal.height);
 			if(i!=0)
@@ -338,21 +377,21 @@ int CGluVideoWindow::dynamic_config(VWIN_CFG type, int iPrm, void* pPrm)
 	int chId, renderId;
 	bool bEnable;
 	cv::Rect *rc;
-	int renderCount = vvideoRenders.size();
+	int renderCount = m_vvideoRenders.size();
 	int videoCount = m_vvideos.size();
 	CGLVideoBlendRender *render;
 	CGLVideo *pVideo;
 
 	if(type == VWIN_CFG_ChId){
 		renderId = iPrm;
-		if(renderId >= renderCount || renderId < 0 || vvideoRenders[renderId] == NULL)
+		if(renderId >= renderCount || renderId < 0 || m_vvideoRenders[renderId] == NULL)
 			return -1;
 		if(pPrm == NULL)
 			return -2;
 		chId = *(int*)pPrm;
 
 		OSA_mutexLock(&m_mutex);
-		render = vvideoRenders[renderId];
+		render = m_vvideoRenders[renderId];
 		int curId = (render->m_video != NULL) ? render->m_video->m_idx : -1;
 		if(curId >= 0){
 			int count = OSA_bufGetFullCount(m_bufQue[curId]);
@@ -393,7 +432,7 @@ int CGluVideoWindow::dynamic_config(VWIN_CFG type, int iPrm, void* pPrm)
 		if(pPrm == NULL)
 			return -2;
 		OSA_mutexLock(&m_mutex);
-		render = vvideoRenders[iPrm];
+		render = m_vvideoRenders[iPrm];
 		GLMatx44f matrix;
 		memcpy(matrix.val , pPrm, sizeof(float)*16);
 		render->set(matrix);
@@ -406,14 +445,14 @@ int CGluVideoWindow::dynamic_config(VWIN_CFG type, int iPrm, void* pPrm)
 		if(pPrm == NULL)
 			return -2;
 		OSA_mutexLock(&m_mutex);
-		render = vvideoRenders[iPrm];
+		render = m_vvideoRenders[iPrm];
 		rc = (cv::Rect*)pPrm;
 		render->set(*rc);
 		OSA_mutexUnlock(&m_mutex);
 	}
 
 	if(type == VWIN_CFG_BlendChId){
-		if(iPrm >= VWIND_CHAN_MAX || iPrm < 0)
+		if(iPrm >= VWIN_CHAN_MAX || iPrm < 0)
 			return -1;
 		if(pPrm == NULL)
 			return -2;
@@ -423,7 +462,7 @@ int CGluVideoWindow::dynamic_config(VWIN_CFG type, int iPrm, void* pPrm)
 	}
 
 	if(type == VWIN_CFG_MaskChId){
-		if(iPrm >= VWIND_CHAN_MAX || iPrm < 0)
+		if(iPrm >= VWIN_CHAN_MAX || iPrm < 0)
 			return -1;
 		if(pPrm == NULL)
 			return -2;
@@ -433,7 +472,7 @@ int CGluVideoWindow::dynamic_config(VWIN_CFG type, int iPrm, void* pPrm)
 	}
 
 	if(type == VWIN_CFG_BlendTransMat){
-		if(iPrm >= VWIND_CHAN_MAX*VWIND_CHAN_MAX || iPrm < 0)
+		if(iPrm >= VWIN_CHAN_MAX*VWIN_CHAN_MAX || iPrm < 0)
 			return -1;
 		if(pPrm == NULL)
 			return -2;
@@ -443,7 +482,7 @@ int CGluVideoWindow::dynamic_config(VWIN_CFG type, int iPrm, void* pPrm)
 	}
 
 	if(type == VWIN_CFG_BlendPrm){
-		if(iPrm >= VWIND_CHAN_MAX*VWIND_CHAN_MAX || iPrm < 0)
+		if(iPrm >= VWIN_CHAN_MAX*VWIN_CHAN_MAX || iPrm < 0)
 			return -1;
 		if(pPrm == NULL)
 			return -2;

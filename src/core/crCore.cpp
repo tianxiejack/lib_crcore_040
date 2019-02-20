@@ -12,7 +12,8 @@
 #include "motionDetectProcess.hpp"
 #include "mmtdProcess.hpp"
 #include "GeneralProcess.hpp"
-#include "Displayer.hpp"
+//#include "Displayer.hpp"
+#include "gluVideoWindow.hpp"
 #include "encTrans.hpp"
 #include "osa_image_queue.h"
 #include "cuda_convert.cuh"
@@ -35,7 +36,7 @@ namespace cr_local
 static cr_osd::GLOSDFactory *vOSDs[CORE_CHN_MAX];
 static cr_osd::GLOSD *glosdFront = NULL;
 static CEncTrans *enctran = NULL;
-static CRender *render = NULL;
+static CGluVideoWindow *render = NULL;
 static IProcess *proc = NULL;
 static CSceneProcess *scene = NULL;
 static CSVMDetectProcess *svm = NULL;
@@ -287,7 +288,7 @@ static int setMainChId(int chId, int fovId, int ndrop, UTC_SIZE acqSize)
 	proc->dynamic_config(CTrackerProc::VP_CFG_AcqWinSize, curFixSizeFlag, &acqSize, sizeof(acqSize));
 	proc->dynamic_config(CProcessBase::VP_CFG_MainChId, chId, &mcPrm, sizeof(mcPrm));
 	if(render!= NULL){
-		render->dynamic_config(CRender::DS_CFG_ChId, 0, &chId);
+		render->dynamic_config(CGluVideoWindow::VWIN_CFG_ChId, 0, &chId);
 	}
 	curChannelFlag = chId;
 	curFovIdFlag[chId] = fovId;
@@ -298,7 +299,7 @@ static int setSubChId(int chId)
 {
 	curSubChannelIdFlag = chId;
 	if(render!= NULL){
-		render->dynamic_config(CRender::DS_CFG_ChId, 1, &chId);
+		render->dynamic_config(CGluVideoWindow::VWIN_CFG_ChId, 1, &chId);
 	}
 	return OSA_SOK;
 }
@@ -447,12 +448,12 @@ static int bindBlend(int chId, int blendchId, cv::Matx44f matric)
 	blendMatric[chId] = matric;
 	if(render!= NULL){
 		if(blendchId>=0 && blendchId < CORE_CHN_MAX){
-			ret = render->dynamic_config(CRender::DS_CFG_BlendTransMat, chId*DS_CHAN_MAX+blendchId, matric.val);
+			ret = render->dynamic_config(CGluVideoWindow::VWIN_CFG_BlendTransMat, chId*VWIN_CHAN_MAX+blendchId, matric.val);
 			ret = proc->dynamic_config(CBkgdDetectProcess::VP_CFG_BkgdDetectEnable, true, &blendchId, sizeof(blendchId));
 		}else{
 			ret = proc->dynamic_config(CBkgdDetectProcess::VP_CFG_BkgdDetectEnable, false);
 		}
-		ret = render->dynamic_config(CRender::DS_CFG_BlendChId, chId, &blendchId);
+		ret = render->dynamic_config(CGluVideoWindow::VWIN_CFG_BlendChId, chId, &blendchId);
 	}
 	return ret;
 }
@@ -466,10 +467,10 @@ static int setWinPos(int winId, cv::Rect rc)
 {
 	int ret = OSA_SOK;
 	if(render!= NULL){
-		ret = render->dynamic_config(CRender::DS_CFG_ViewPos, winId, &rc);
+		ret = render->dynamic_config(CGluVideoWindow::VWIN_CFG_ViewPos, winId, &rc);
 		if(winId == 1){
-			subRc = render->m_renders[1].displayrect;
-			subMatric = render->m_renders[1].transform;
+			subRc = render->m_vvideoRenders[1]->m_viewPort;//render->m_renders[1].displayrect;
+			subMatric = render->m_vvideoRenders[1]->m_matrix;//render->m_renders[1].transform;
 		}
 	}
 	return ret;
@@ -479,10 +480,10 @@ static int setWinMatric(int winId, cv::Matx44f matric)
 {
 	int ret = OSA_SOK;
 	if(render!= NULL){
-		ret = render->dynamic_config(CRender::DS_CFG_ViewTransMat, winId, matric.val);
+		ret = render->dynamic_config(CGluVideoWindow::VWIN_CFG_ViewTransMat, winId, matric.val);
 		if(winId == 1){
-			subRc = render->m_renders[1].displayrect;
-			subMatric = render->m_renders[1].transform;
+			subRc = render->m_vvideoRenders[1]->m_viewPort;//render->m_renders[1].displayrect;
+			subMatric = render->m_vvideoRenders[1]->m_matrix;//render->m_renders[1].transform;
 		}
 	}
 	return ret;
@@ -858,7 +859,7 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 
 	if(bRender)
 	{
-		DS_InitPrm dsInit;
+		VWIND_Prm dsInit;
 		memset(&dsInit, 0, sizeof(dsInit));
 		renderFPS = initParam->renderFPS;
 		if(renderFPS<=0)
@@ -872,8 +873,8 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 		dsInit.nQueueSize = 4;
 		dsInit.disFPS = initParam->renderFPS;
 		dsInit.renderfunc = renderCall;
-		dsInit.winWidth = initParam->renderSize.width;
-		dsInit.winHeight = initParam->renderSize.height;
+		//dsInit.winWidth = initParam->renderSize.width;
+		//dsInit.winHeight = initParam->renderSize.height;
 		for(chId=0; chId<channels; chId++){
 			dsInit.channelInfo[chId].w = channelsImgSize[chId].width;
 			dsInit.channelInfo[chId].h = channelsImgSize[chId].height;
@@ -883,17 +884,17 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 			else
 				dsInit.channelInfo[chId].c = 3;
 		}
-		render = CRender::createObject();
-		render->create(&dsInit);
+		render = new CGluVideoWindow(initParam->renderRC);
+		render->Create(dsInit);
 		for(chId=0; chId<channels; chId++){
-			imgQRender[chId] = &render->m_bufQue[chId];
+			imgQRender[chId] = render->m_bufQue[chId];
 		}
 		inputQ = new InputQueue;
 		inputQ->create(channels, 4);
 		glosdInit();
 
-		subRc = render->m_renders[1].displayrect;
-		subMatric = render->m_renders[1].transform;
+		subRc = render->m_vvideoRenders[1]->m_viewPort;//render->m_renders[1].displayrect;
+		subMatric = render->m_vvideoRenders[1]->m_matrix;//render->m_renders[1].transform;
 	}
 
 	scene  = new CSceneProcess();
@@ -912,7 +913,7 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 
 	for(chId=0; chId<channels; chId++){
 		if(!bEncoder && bRender)
-			general->m_dc[chId] = cv::Mat(initParam->renderSize.height, initParam->renderSize.width, CV_8UC1);
+			general->m_dc[chId] = cv::Mat(initParam->renderRC.height, initParam->renderRC.width, CV_8UC1);
 		else
 			general->m_dc[chId] = imgOsd[chId];
 
@@ -935,8 +936,9 @@ static int uninit()
 	enctran->stop();
 	enctran->destroy();
 	if(render != NULL){
-		render->destroy();
-		CRender::destroyObject(render);
+		render->Destroy();
+		delete render;
+		render = NULL;
 	}
 
 	if(enctran == NULL){
@@ -1171,15 +1173,15 @@ static void processFrame(int cap_chid, unsigned char *src, const struct v4l2_buf
 		proc->OnOSD(cap_chid, curFovIdFlag[cap_chid], ezoomxFlag[cap_chid], general->m_dc[cap_chid], general->m_vosds[cap_chid]);
 
 	if(bindBlendFlag[cap_chid] != 0 && render != NULL && bkgd != NULL){
-		DS_BlendPrm prm;
+		GLV_BlendPrm prm;
 		prm.fAlpha = bkgd->m_alpha;
 		prm.thr0Min = bkgd->m_thr0Min;
 		prm.thr0Max = bkgd->m_thr0Max;
 		prm.thr1Min = bkgd->m_thr1Min;
 		prm.thr1Max = bkgd->m_thr1Max;
-		for(int chId=0; chId<DS_CHAN_MAX; chId++){
+		for(int chId=0; chId<VWIN_CHAN_MAX; chId++){
 			if((bindBlendFlag[cap_chid] & (1<<chId))!=0)
-				render->dynamic_config(CRender::DS_CFG_BlendPrm, chId*DS_CHAN_MAX+cap_chid, &prm);
+				render->dynamic_config(CGluVideoWindow::VWIN_CFG_BlendPrm, chId*VWIN_CHAN_MAX+cap_chid, &prm);
 		}
 	}
 
@@ -1204,7 +1206,7 @@ static void processFrame(int cap_chid, unsigned char *src, const struct v4l2_buf
 				0.0f, 0.0f, 1.0f, 0.0f,
 				0.0f, 0.0f, 0.0f, 1.0f
 			};
-			render->dynamic_config(CRender::DS_CFG_VideoTransMat, cap_chid, mat4);
+			render->dynamic_config(CGluVideoWindow::DS_CFG_VideoTransMat, cap_chid, mat4);
 		}*/
 		if(curChannelFlag == cap_chid && !isEqual(ezoomxFlag[cap_chid]*1.0, scaleFlag[0])){
 			scaleFlag[0] = ezoomxFlag[cap_chid]*1.0;
@@ -1215,7 +1217,7 @@ static void processFrame(int cap_chid, unsigned char *src, const struct v4l2_buf
 				0.0f, 0.0f, 1.0f, 0.0f,
 				0.0f, 0.0f, 0.0f, 1.0f
 			};
-			render->dynamic_config(CRender::DS_CFG_ViewTransMat, 0, mat4);
+			render->dynamic_config(CGluVideoWindow::VWIN_CFG_ViewTransMat, 0, mat4);
 		}
 		//render->m_bOsd = enableOSDFlag;
 		renderFrame(cap_chid, img, capInfo, format);
@@ -1250,11 +1252,12 @@ static void glosdInit(void)
 #if 1
 	cr_osd::glShaderManager.InitializeStockShaders();
 	for(int chId=0; chId<nValidChannels; chId++){
-		if(vOSDs[chId] == NULL)
-			vOSDs[chId] = new cr_osd::GLOSD(render->m_winWidth, render->m_winHeight, fontSizeVideo[chId], fileNameFont[chId]);
+		if(vOSDs[chId] == NULL){
+			vOSDs[chId] = new cr_osd::GLOSD(render->m_rc.width, render->m_rc.height, fontSizeVideo[chId], fileNameFont[chId]);
+		}
 	}
 	if(enctran == NULL){
-		glosdFront = new cr_osd::GLOSD(render->m_winWidth, render->m_winHeight, fontSizeRender, fileNameFontRender);
+		glosdFront = new cr_osd::GLOSD(render->m_rc.width, render->m_rc.height, fontSizeRender, fileNameFontRender);
 		cr_osd::vosdFactorys.push_back(glosdFront);
 	}
 #else
@@ -1278,20 +1281,20 @@ static void renderCall(int displayId, int stepIdx, int stepSub, int context)
 	if(enctran == NULL)
 	{
 		OSA_assert(imgQEnc[0] == NULL);
-		/*if(stepIdx == CRender::RUN_ENTER)
+		/*if(stepIdx == CGluVideoWindow::RUN_ENTER)
 		{
 			for(int chId =0; chId<nValidChannels; chId++){
 				if(vOSDs[chId] != NULL)
 					vOSDs[chId]->begin(colorRGBAFlag, curThicknessFlag);
 			}
 		}*/
-		if(stepIdx == CRender::RUN_WIN)
+		if(stepIdx == CGluVideoWindow::RUN_WIN)
 		{
 			if(enableOSDFlag && stepSub == 0 && vOSDs[context] != NULL){
 				vOSDs[context]->Draw();
 			}
 		}
-		if(stepIdx == CRender::RUN_SWAP)
+		if(stepIdx == CGluVideoWindow::RUN_SWAP)
 		{
 			for(int chId =0; chId<nValidChannels; chId++){
 				if(vOSDs[chId] != NULL)
@@ -1302,7 +1305,7 @@ static void renderCall(int displayId, int stepIdx, int stepSub, int context)
 		}
 	}
 
-	if(stepIdx == CRender::RUN_ENTER)
+	if(stepIdx == CGluVideoWindow::RUN_ENTER)
 	{
 		if(inputQ == NULL)
 			return ;

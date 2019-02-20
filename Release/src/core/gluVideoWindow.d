@@ -256,4 +256,8 @@ src/core/gluVideoWindow.o : ../src/core/gluVideoWindow.cpp \
     /usr/include/GL/glu.h \
     /usr/include/GL/freeglut_ext.h \
     ../include/glvideoRender.hpp \
-    ../src/core/glvideo.hpp
+    ../src/core/glvideo.hpp \
+    /usr/include/X11/Xlib.h \
+    /usr/include/X11/X.h \
+    /usr/include/X11/Xfuncproto.h \
+    /usr/include/X11/Xosdefs.h

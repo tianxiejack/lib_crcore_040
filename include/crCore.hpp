@@ -9,16 +9,17 @@
 #define CRCORE_HPP_
 
 /***********************************************
- * core version 1.0.8
+ * core version 1.0.9
  *
  * 20/12/2018 motify: CORE1001_INIT_PARAM::renderHook
  *	enum{	 RUN_ENTER = 0,RUN_WIN,	RUN_SWAP,	RUN_LEAVE };
  * 11/01/2019 motify: int ICore_1001::setHideSysOsd(bool bHideOSD)
+ * 20/02/2019 motify: cv::Rect renderRC;
  */
 #include "osa.h"
 #include "osa_sem.h"
 
-#define CORE_1001_VERSION_  "1.0.8"
+#define CORE_1001_VERSION_  "1.0.9"
 #define COREID_1001			(0x10010000)
 #define COREID_1001_040		(CORNID_1001 + 1)
 
@@ -88,7 +89,7 @@ typedef struct _core_1001_init{
 	bool bEncoder;
 	bool bRender;
 	bool bHideOSD;
-	cv::Size renderSize;
+	cv::Rect renderRC;
 	int renderFPS;
 	float renderSched;
 	char *encStreamIpaddr;

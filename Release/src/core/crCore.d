@@ -308,12 +308,14 @@ src/core/crCore.o : ../src/core/crCore.cpp \
     ../include/trackerProcess.hpp \
     ../include/UtcTrack.h \
     ../include/PCTracker.h \
-    ../include/Displayer.hpp \
+    ../include/gluVideoWindow.hpp \
+    ../include/gluWindow.hpp \
     /usr/include/GL/glut.h \
     /usr/include/GL/freeglut_std.h \
     /usr/include/GL/gl.h \
     /usr/include/GL/glu.h \
     /usr/include/GL/freeglut_ext.h \
+    ../include/glvideoRender.hpp \
     ../include/encTrans.hpp \
     /usr/local/cuda-8.0/bin/../targets/aarch64-linux/include/cuda.h \
     /usr/local/cuda-8.0/bin/../targets/aarch64-linux/include/cuda_runtime_api.h \
