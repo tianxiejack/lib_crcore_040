@@ -364,7 +364,7 @@ CGLVideoBlendRender* CGluVideoWindow::CreateVedioRender(int index)
 	memset(&prm, 0, sizeof(prm));
 	prm.fAlpha = 0.5f;
 	if(index != 0){
-		//video = NULL;
+		video = NULL;
 		viewPort = cv::Rect(m_rcReal.width*2/3, m_rcReal.height*2/3, m_rcReal.width/3, m_rcReal.height/3);
 	}
 	CGLVideoBlendRender *render = new CGLVideoBlendRender(video, matrix, viewPort, blend, blendMatrix, prm);
