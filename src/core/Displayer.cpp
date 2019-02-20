@@ -1421,6 +1421,22 @@ static const char *szDefaultShaderFP = ""
 		"{"
 		"	gl_FragColor = texture(tex_in, vVaryingTexCoords);"
 		"}";
+
+static const char *szFilterShaderFP = ""
+		"varying vec2 vVaryingTexCoords;"
+		"uniform sampler2D tex_in;"
+		"void main(void)"
+		"{"
+		"	vec4  vColor;"
+		"	float k;"
+		"	vColor = texture(tex_in, vVaryingTexCoords);"
+		"	k = step(vColor.r, 0.003)*step(vColor.g, 0.003)*step(vColor.b, 0.003);"
+		"	gl_FragColor.r = vColor.r*(1-k)+0.00392157*k;"
+		"	gl_FragColor.g = vColor.g*(1-k)+0.00392157*k;"
+		"	gl_FragColor.b = vColor.b*(1-k)+0.00392157*k;"
+		"	gl_FragColor.a = 1.0;"
+		"}";
+
 static const char *szAlphaTextureShaderFP = ""
 		"varying vec2 vVaryingTexCoords;"
 		"uniform sampler2D tex_in;"

@@ -1272,6 +1272,9 @@ static void glosdInit(void)
 
 static void renderCall(int displayId, int stepIdx, int stepSub, int context)
 {
+	if(renderHook != NULL)
+		renderHook(displayId, stepIdx, stepSub, context);
+
 	if(enctran == NULL)
 	{
 		OSA_assert(imgQEnc[0] == NULL);
@@ -1343,9 +1346,6 @@ static void renderCall(int displayId, int stepIdx, int stepSub, int context)
 		}
 	#endif
 	}
-
-	if(renderHook != NULL)
-		renderHook(displayId, stepIdx, stepSub, context);
 }//void renderCall(int displayId, int stepIdx, int stepSub, int context)
 
 };//namespace cr_local

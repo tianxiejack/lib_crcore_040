@@ -17,6 +17,11 @@ CPP_SRCS += \
 ../src/core/blobDetectProcess.cpp \
 ../src/core/crCore.cpp \
 ../src/core/encTrans.cpp \
+../src/core/gluVideoWindow.cpp \
+../src/core/gluVideoWindowSecondScreen.cpp \
+../src/core/gluWindow.cpp \
+../src/core/glvideo.cpp \
+../src/core/glvideoRender.cpp \
 ../src/core/mmtdProcess.cpp \
 ../src/core/motionDetectProcess.cpp \
 ../src/core/thread.cpp \
@@ -34,6 +39,11 @@ OBJS += \
 ./src/core/cuda.o \
 ./src/core/cuda_convert.o \
 ./src/core/encTrans.o \
+./src/core/gluVideoWindow.o \
+./src/core/gluVideoWindowSecondScreen.o \
+./src/core/gluWindow.o \
+./src/core/glvideo.o \
+./src/core/glvideoRender.o \
 ./src/core/mmtdProcess.o \
 ./src/core/motionDetectProcess.o \
 ./src/core/thread.o \
@@ -53,6 +63,11 @@ CPP_DEPS += \
 ./src/core/blobDetectProcess.d \
 ./src/core/crCore.d \
 ./src/core/encTrans.d \
+./src/core/gluVideoWindow.d \
+./src/core/gluVideoWindowSecondScreen.d \
+./src/core/gluWindow.d \
+./src/core/glvideo.d \
+./src/core/glvideoRender.d \
 ./src/core/mmtdProcess.d \
 ./src/core/motionDetectProcess.d \
 ./src/core/thread.d \
