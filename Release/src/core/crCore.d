@@ -316,6 +316,7 @@ src/core/crCore.o : ../src/core/crCore.cpp \
     /usr/include/GL/glu.h \
     /usr/include/GL/freeglut_ext.h \
     ../include/glvideoRender.hpp \
+    ../include/gluVideoWindowSecondScreen.hpp \
     ../include/encTrans.hpp \
     /usr/local/cuda-8.0/bin/../targets/aarch64-linux/include/cuda.h \
     /usr/local/cuda-8.0/bin/../targets/aarch64-linux/include/cuda_runtime_api.h \
@@ -344,4 +345,5 @@ src/core/crCore.o : ../src/core/crCore.cpp \
     /usr/local/cuda-8.0/bin/../targets/aarch64-linux/include/vector_functions.h \
     /usr/local/cuda-8.0/bin/../targets/aarch64-linux/include/vector_functions.hpp \
     ../src/core/thread.h \
-    ../include/crCore.hpp
+    ../include/crCore.hpp \
+    ../include/crcoreSecondScreen.hpp

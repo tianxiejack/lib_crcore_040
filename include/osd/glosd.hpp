@@ -26,7 +26,6 @@ protected:
 	friend class GLOSDFactoryBase;
 	friend class GLOSD;
 	friend class DCOSD;
-	GLOSDFactory *m_factory;
 	cv::Size2f m_posScale;
 	int m_index;
 	bool m_bUpdate;
@@ -46,6 +45,7 @@ protected:
 	const float* m_fValue;
 	const int* m_statValue;
 public:
+	GLOSDFactory *m_factory;
 	const void* m_share;
 	cv::Size m_viewport;
 	cv::Point2f m_center;
