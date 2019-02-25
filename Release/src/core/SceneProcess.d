@@ -290,4 +290,11 @@ src/core/SceneProcess.o : ../src/core/SceneProcess.cpp \
     ../include/kalman_filters.hpp \
     /usr/include/opencv2/core.hpp \
     ../include/osd/crosd.hpp \
-    ../include/GL/glew.h
+    ../include/GL/glew.h \
+    ../include/osd/GLBatchMini.h \
+    ../include/osd/math3d.h \
+    ../include/osd/GLFrustum.h \
+    ../include/osd/GLFrame.h \
+    ../include/osd/GLMatrixStack.h \
+    ../include/osd/GLGeometryTransform.h \
+    ../include/osd/GLShaderManagerMini.h

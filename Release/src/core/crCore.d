@@ -216,6 +216,11 @@ src/core/crCore.o : ../src/core/crCore.cpp \
     ../include/osd/gltext.hpp \
     ../include/osd/dctext.hpp \
     ../include/osd/crosd.hpp \
+    ../include/osd/GLBatchMini.h \
+    ../include/osd/GLFrustum.h \
+    ../include/osd/GLFrame.h \
+    ../include/osd/GLMatrixStack.h \
+    ../include/osd/GLGeometryTransform.h \
     ../include/osa/osa_mutex.h \
     ../include/osa/osa.h \
     /usr/include/signal.h \
