@@ -364,6 +364,7 @@ void CGLVideoRender::render()
 	GLMatx44f mTrans = m_video->m_matrix*m_matrix;
 	glUniformMatrix4fv(Uniform_mvp, 1, GL_FALSE, mTrans.val);
 	glUniform1i(Uniform_tex_in, 0);
+	glEnable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, m_video->textureId);
 	glVertexAttribPointer(ATTRIB_VERTEX, 2, GL_FLOAT, GL_FALSE, 0, m_vVerts);
@@ -373,6 +374,8 @@ void CGLVideoRender::render()
 	//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glViewport(m_viewPort.x, m_viewPort.y, m_viewPort.width, m_viewPort.height);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glDisable(GL_TEXTURE_2D);
 	glUseProgram(0);
 	OSA_mutexUnlock(&m_mutex);
 }
@@ -437,9 +440,9 @@ void CGLVideoBlendRender::render()
 	glUniform1f(uniform_thr1Min, m_blendPrm.thr1Min);
 	glUniform1f(uniform_thr1Max, m_blendPrm.thr1Max);
 	glUniform1i(Uniform_tex_in, 0);
+	glEnable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, m_blend->textureId);
-
 	glVertexAttribPointer(ATTRIB_VERTEX, 2, GL_FLOAT, GL_FALSE, 0, m_vVerts);
 	glVertexAttribPointer(ATTRIB_TEXTURE, 2, GL_FLOAT, GL_FALSE, 0, m_vTexCoords);
 	glEnableVertexAttribArray(ATTRIB_VERTEX);
@@ -448,8 +451,10 @@ void CGLVideoBlendRender::render()
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	glBindTexture(GL_TEXTURE_2D, 0);
 	glDisable(GL_MULTISAMPLE);
 	glDisable(GL_BLEND);
+	glDisable(GL_TEXTURE_2D);
 	glUseProgram(0);
 	OSA_mutexUnlock(&m_mutex);
 }
@@ -496,12 +501,12 @@ void CGLVideoMaskBlendRender::render()
 	GLint Uniform_mvp = glGetUniformLocation(glProg, "mvpMatrix");
 	glUniformMatrix4fv(Uniform_mvp, 1, GL_FALSE, mTrans.val);
 	glUniform1i(Uniform_tex_in, 0);
+	glEnable(GL_TEXTURE_2D);
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, m_blend->textureId);
 	glUniform1i(Uniform_tex_mask, 1);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, m_mask->textureId);
-
 	glVertexAttribPointer(ATTRIB_VERTEX, 2, GL_FLOAT, GL_FALSE, 0, m_vVerts);
 	glVertexAttribPointer(ATTRIB_TEXTURE, 2, GL_FLOAT, GL_FALSE, 0, m_vTexCoords);
 	glEnableVertexAttribArray(ATTRIB_VERTEX);
@@ -510,8 +515,13 @@ void CGLVideoMaskBlendRender::render()
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, 0);
 	glDisable(GL_MULTISAMPLE);
 	glDisable(GL_BLEND);
+	glDisable(GL_TEXTURE_2D);
 	glUseProgram(0);
 	OSA_mutexUnlock(&m_mutex);
 }

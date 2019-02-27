@@ -23,6 +23,10 @@ CGluVideoWindowSecond::~CGluVideoWindowSecond()
 
 void CGluVideoWindowSecond::Display()
 {
+	glClear(GL_COLOR_BUFFER_BIT);
+	glDisable(GL_MULTISAMPLE);
+	glDisable(GL_COLOR_MATERIAL);
+
 	if(m_initPrm.renderfunc != NULL)
 		m_initPrm.renderfunc(1, RUN_ENTER, 0, 0);
 

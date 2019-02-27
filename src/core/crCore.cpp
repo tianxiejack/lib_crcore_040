@@ -758,7 +758,7 @@ static OSA_MutexHndl *cumutex = NULL;
 static void glosdInit(void);
 static void renderCall(int displayId, int stepIdx, int stepSub, int context);
 
-static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
+static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL, CGluVideoWindow *videoWindow = NULL)
 {
 	int ret = OSA_SOK;
 	int chId;
@@ -860,33 +860,39 @@ static int init(CORE1001_INIT_PARAM *initParam, OSA_SemHndl *notify = NULL)
 
 	if(bRender)
 	{
-		VWIND_Prm dsInit;
-		memset(&dsInit, 0, sizeof(dsInit));
 		renderFPS = initParam->renderFPS;
 		if(renderFPS<=0)
 			renderFPS = 30;
-		dsInit.disSched = initParam->renderSched;
-		if(dsInit.disSched<=0.00001)
-			dsInit.disSched = 3.5;
-		dsInit.bFullScreen = true;
-		dsInit.nChannels = channels;
-		dsInit.memType = memtype_glpbo;//memtype_glpbo;//memtype_cuhost;//memtype_cudev;
-		dsInit.nQueueSize = 4;
-		dsInit.disFPS = initParam->renderFPS;
-		dsInit.renderfunc = renderCall;
-		//dsInit.winWidth = initParam->renderSize.width;
-		//dsInit.winHeight = initParam->renderSize.height;
-		for(chId=0; chId<channels; chId++){
-			dsInit.channelInfo[chId].w = channelsImgSize[chId].width;
-			dsInit.channelInfo[chId].h = channelsImgSize[chId].height;
-			dsInit.channelInfo[chId].fps = initParam->chnInfo[chId].fps;
-			if(!bEncoder && channelsFormat[chId] == V4L2_PIX_FMT_GREY)
-				dsInit.channelInfo[chId].c = 1;
-			else
-				dsInit.channelInfo[chId].c = 3;
+
+		if(videoWindow == NULL){
+			VWIND_Prm dsInit;
+			memset(&dsInit, 0, sizeof(dsInit));
+			dsInit.disSched = initParam->renderSched;
+			if(dsInit.disSched<=0.00001)
+				dsInit.disSched = 3.5;
+			dsInit.bFullScreen = true;
+			dsInit.nChannels = channels;
+			dsInit.memType = memtype_glpbo;//memtype_glpbo;//memtype_cuhost;//memtype_cudev;
+			dsInit.nQueueSize = 4;
+			dsInit.disFPS = initParam->renderFPS;
+			dsInit.renderfunc = renderCall;
+			//dsInit.winWidth = initParam->renderSize.width;
+			//dsInit.winHeight = initParam->renderSize.height;
+			for(chId=0; chId<channels; chId++){
+				dsInit.channelInfo[chId].w = channelsImgSize[chId].width;
+				dsInit.channelInfo[chId].h = channelsImgSize[chId].height;
+				dsInit.channelInfo[chId].fps = initParam->chnInfo[chId].fps;
+				if(!bEncoder && channelsFormat[chId] == V4L2_PIX_FMT_GREY)
+					dsInit.channelInfo[chId].c = 1;
+				else
+					dsInit.channelInfo[chId].c = 3;
+			}
+			render = new CGluVideoWindow(initParam->renderRC);
+			render->Create(dsInit);
+		}else{
+			videoWindow->m_initPrm.renderfunc = renderCall;
+			render = videoWindow;
 		}
-		render = new CGluVideoWindow(initParam->renderRC);
-		render->Create(dsInit);
 		for(chId=0; chId<channels; chId++){
 			imgQRender[chId] = render->m_bufQue[chId];
 		}
@@ -1388,14 +1394,41 @@ public:
 		printf("\r\n crCore(ID:%08X) v%s--------------Build date: %s %s \r\n",
 				ID, m_version, __DATE__, __TIME__);
 
-		OSA_assert(sizeof(CORE1001_INIT_PARAM) == paramSize);
-		CORE1001_INIT_PARAM *initParam = (CORE1001_INIT_PARAM*)pParam;
-		m_notifySem = initParam->notify;
+		int ret = OSA_SOK;
+		int nChannels = 0;
 		OSA_semCreate(&m_updateSem, 1, 0);
-		int ret = cr_local::init(initParam, &m_updateSem);
+		if(sizeof(CORE1001_INIT_PARAM) == paramSize){
+			CORE1001_INIT_PARAM *initParam = (CORE1001_INIT_PARAM*)pParam;
+			m_notifySem = initParam->notify;
+			ret = cr_local::init(initParam, &m_updateSem);
+			nChannels = initParam->nChannels;
+		}else if(sizeof(CORE1001_INIT_PARAM2) == paramSize){
+			CORE1001_INIT_PARAM2 *initParam2 = (CORE1001_INIT_PARAM2*)pParam;
+			CORE1001_INIT_PARAM initParam;
+			memset(&initParam, 0, sizeof(initParam));
+			memcpy(initParam.chnInfo, initParam2->chnInfo, sizeof(initParam.chnInfo));
+			initParam.nChannels = initParam2->nChannels;
+			initParam.notify = initParam2->notify;
+			initParam.bEncoder = initParam2->bEncoder;
+			initParam.bHideOSD = initParam2->bHideOSD;
+			initParam.encStreamIpaddr = initParam2->encStreamIpaddr;
+			memcpy(initParam.encoderParamTab, initParam2->encoderParamTab, sizeof(initParam.encoderParamTab));
+			memcpy(initParam.encoderParamTabMulti, initParam2->encoderParamTabMulti, sizeof(initParam.encoderParamTabMulti));
+			if(initParam2->videoWindow != NULL){
+				initParam.bRender = true;
+				initParam.renderRC = initParam2->videoWindow->m_rc;
+				initParam.renderFPS = initParam2->videoWindow->m_initPrm.disFPS;
+				initParam.renderSched = initParam2->videoWindow->m_initPrm.disSched;
+				initParam.renderHook = initParam2->videoWindow->m_initPrm.renderfunc;
+			}
+			ret = cr_local::init(&initParam, &m_updateSem, initParam2->videoWindow);
+			nChannels = initParam.nChannels;
+		}else{
+			OSA_assert(0);
+		}
 		memset(&m_stats, 0, sizeof(m_stats));
 		update();
-		for(int chId=0; chId<initParam->nChannels; chId++)
+		for(int chId=0; chId<nChannels; chId++)
 			m_dc[chId] = cr_local::general->m_dc[chId];
 		m_bRun = true;
 		start_thread(thrdhndl_update, this);
@@ -1731,6 +1764,8 @@ CSecondScreenBase::CSecondScreenBase(const cv::Rect& rc, int fps, bool bFull, in
 		strcpy(ctx->fontFile, fontFile);
 	else
 		memset(ctx->fontFile, 0, sizeof(ctx->fontFile));
+
+	OSA_printf("%s %d: %s rc(%d,%d,%d,%d)", __FILE__, __LINE__, __func__, rc.x, rc.y, rc.width, rc.height);
 
 	CGluVideoWindowSecond *videoWin = ctx->videoWin;
     VWIND_Prm vwinPrm;

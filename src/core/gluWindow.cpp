@@ -72,9 +72,10 @@ int CGluWindow::Create(bool FullScreen)
 		return -1;
 	}
 
-	glClearColor(1.0f, 0.0f, 0.01f, 0.0f );
+	glClearColor(0.0f, 1.0f, 0.01f, 1.0f );
 	glClear(GL_COLOR_BUFFER_BIT);
 	glDisable(GL_MULTISAMPLE);
+	glDisable(GL_COLOR_MATERIAL);
 
 	glutSetWindow(m_winId);
 	if(FullScreen){

@@ -120,9 +120,10 @@ void CSceneProcess::detect(const Mat& frame, int chId)
 	unsigned int us = now.tv_sec*1000000+now.tv_nsec/1000;
 	*(unsigned int*)frameROI.data = us;
 
-	if(m_cnt[chId] == 0)
+	if(m_cnt[chId] == 0){
+		m_obj.SetStandardSize(cv::Size(frameROI.cols, frameROI.rows));
 		m_obj.InitSceneLock(frameROI);
-	else
+	}else
 		m_obj.CalSceneLock(frameROI);
 #ifdef DBG_WAVE
 	vArrayOrg.erase(vArrayOrg.begin());

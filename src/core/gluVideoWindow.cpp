@@ -190,6 +190,7 @@ void CGluVideoWindow::Display()
 
 	glClear(GL_COLOR_BUFFER_BIT);
 	glDisable(GL_MULTISAMPLE);
+	glDisable(GL_COLOR_MATERIAL);
 
 	int64 tStamp[10];
 	tStamp[0] = getTickCount();
