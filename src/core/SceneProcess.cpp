@@ -117,8 +117,8 @@ void CSceneProcess::detect(const Mat& frame, int chId)
 
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
-	unsigned int us = now.tv_sec*1000000+now.tv_nsec/1000;
-	*(unsigned int*)frameROI.data = us;
+	uint64_t us = now.tv_sec*1000000+now.tv_nsec/1000;
+	*(uint64_t*)frameROI.data = us;
 
 	if(m_cnt[chId] == 0){
 		m_obj.SetStandardSize(cv::Size(frameROI.cols, frameROI.rows));
