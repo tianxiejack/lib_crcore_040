@@ -140,6 +140,7 @@ int CGluVideoWindow::Create(const VWIND_Prm& param)
 
 	OSA_assert(iRet == OSA_SOK);
 
+	OSA_printf("[%d] %s %d: GLU%d ", OSA_getCurTimeInMsec(), __FILE__, __LINE__, m_winId);
 	return iRet;
 }
 

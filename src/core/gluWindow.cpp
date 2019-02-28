@@ -32,7 +32,7 @@ CGluWindow::~CGluWindow()
 void CGluWindow::_reshape(int width, int height)
 {
 	int winId = glutGetWindow();
-	//OSA_printf("[%d] %s %d: GLU%d %d x %d", OSA_getCurTimeInMsec(), __func__, __LINE__, winId, width, height);
+	OSA_printf("[%d] %s %d: GLU%d %d x %d", OSA_getCurTimeInMsec(), __func__, __LINE__, winId, width, height);
 	CGluWindow *win = vwindows[winId];
 	win->Reshape(width, height);
 }
@@ -68,7 +68,7 @@ int CGluWindow::Create(bool FullScreen)
 
 	GLenum err = glewInit();
 	if (GLEW_OK != err) {
-		fprintf(stderr, "\n[GLU%d] %s %d: Error in glewInit. %s\n", m_winId, __func__, __LINE__, glewGetErrorString(err));
+		fprintf(stderr, "\n[GLU%d] %s %d: Error in glewInit. %s\n", m_winId, __FILE__, __LINE__, glewGetErrorString(err));
 		return -1;
 	}
 
@@ -81,7 +81,8 @@ int CGluWindow::Create(bool FullScreen)
 	if(FullScreen){
 		glutFullScreen();
 	}
-
+	OSA_printf("[%d] %s %d: GLU%d  (%d,%d,%d,%d)", OSA_getCurTimeInMsec(), __func__, __LINE__, m_winId,
+			m_rc.x, m_rc.y, m_rc.width, m_rc.height);
 	return err;
 }
 

@@ -48,7 +48,7 @@
 									<listOptionValue builtIn="false" value="../src/libjpeg-8b"/>
 									<listOptionValue builtIn="false" value="../src/nvMedia/libjpeg-8b"/>
 								</option>
-								<option id="nvcc.compiler.def.symbols.827965124" name="Defined symbols (-D)" superClass="nvcc.compiler.def.symbols" valueType="definedSymbols"/>
+								<option id="nvcc.compiler.def.symbols.827965124" name="Defined symbols (-D)" superClass="nvcc.compiler.def.symbols"/>
 								<inputType id="nvcc.compiler.input.cu.1755647641" superClass="nvcc.compiler.input.cu"/>
 								<inputType id="nvcc.compiler.input.cpp.99661771" superClass="nvcc.compiler.input.cpp"/>
 								<inputType id="nvcc.compiler.input.c.1855742994" superClass="nvcc.compiler.input.c"/>
@@ -107,7 +107,9 @@
 				<externalSettings>
 					<externalSetting>
 						<entry flags="VALUE_WORKSPACE_PATH" kind="includePath" name="/crcore"/>
+						<entry flags="VALUE_WORKSPACE_PATH" kind="includePath" name="/lib_crcore"/>
 						<entry flags="VALUE_WORKSPACE_PATH" kind="libraryPath" name="/crcore/Release"/>
+						<entry flags="VALUE_WORKSPACE_PATH" kind="libraryPath" name="/lib_crcore/Release"/>
 						<entry flags="RESOLVED" kind="libraryFile" name="crcore" srcPrefixMapping="" srcRootPath=""/>
 					</externalSetting>
 				</externalSettings>
@@ -124,7 +126,7 @@
 				</extensions>
 			</storageModule>
 			<storageModule moduleId="cdtBuildSystem" version="4.0.0">
-				<configuration artifactExtension="so" artifactName="${ProjName}" buildArtefactType="org.eclipse.cdt.build.core.buildArtefactType.sharedLib" buildProperties="org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.release,org.eclipse.cdt.build.core.buildArtefactType=org.eclipse.cdt.build.core.buildArtefactType.sharedLib" cleanCommand="rm -rf" description="" id="com.nvidia.cuda.ide.eight_zero.configuration.so.release.1594605725" name="Release" parent="com.nvidia.cuda.ide.eight_zero.configuration.so.release">
+				<configuration artifactExtension="so" artifactName="crcore" buildArtefactType="org.eclipse.cdt.build.core.buildArtefactType.sharedLib" buildProperties="org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.release,org.eclipse.cdt.build.core.buildArtefactType=org.eclipse.cdt.build.core.buildArtefactType.sharedLib" cleanCommand="rm -rf" description="" id="com.nvidia.cuda.ide.eight_zero.configuration.so.release.1594605725" name="Release" parent="com.nvidia.cuda.ide.eight_zero.configuration.so.release">
 					<folderInfo id="com.nvidia.cuda.ide.eight_zero.configuration.so.release.1594605725." name="/" resourcePath="">
 						<toolChain id="com.nvidia.cuda.ide.toolchain.eight_zero.so.release.1927100455" name="CUDA Toolkit 8.0" superClass="com.nvidia.cuda.ide.toolchain.eight_zero.so.release">
 							<targetPlatform archList="all" binaryParser="com.nvidia.cuda.ide.elf;com.nvidia.cuda.ide.macho;com.nvidia.cuda.ide.cubin" id="com.nvidia.cuda.ide.targetPlatform.1360267104" isAbstract="false" name="Debug Platform" osList="linux,macosx" superClass="com.nvidia.cuda.ide.targetPlatform"/>
@@ -213,7 +215,14 @@
 		<project id="crcore.com.nvidia.cuda.ide.eight_zero.so.1063474297" name="Shared Library" projectType="com.nvidia.cuda.ide.eight_zero.so"/>
 	</storageModule>
 	<storageModule moduleId="org.eclipse.cdt.core.LanguageSettingsProviders"/>
-	<storageModule moduleId="refreshScope"/>
+	<storageModule moduleId="refreshScope" versionNumber="2">
+		<configuration configurationName="Release">
+			<resource resourceType="PROJECT" workspacePath="/lib_crcore"/>
+		</configuration>
+		<configuration configurationName="Debug">
+			<resource resourceType="PROJECT" workspacePath="/lib_crcore"/>
+		</configuration>
+	</storageModule>
 	<storageModule moduleId="scannerConfiguration">
 		<autodiscovery enabled="true" problemReportingEnabled="true" selectedProfileId=""/>
 		<scannerConfigBuildInfo instanceId="com.nvidia.cuda.ide.seven_five.configuration.debug.1316677125;com.nvidia.cuda.ide.seven_five.configuration.debug.1316677125.;nvcc.compiler.base.701310145;nvcc.compiler.input.cpp.291386805">
